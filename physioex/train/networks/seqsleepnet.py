@@ -11,8 +11,11 @@ module_config = dict()
 
 
 class SeqSleepNet(SleepModule):
-    def __init__(self, module_config=module_config):
-        super(SeqSleepNet, self).__init__(Net(module_config), module_config)
+    def __init__(self, module_config=module_config, nn: nn.Module = None):
+        if nn is None:
+            nn = Net(module_config)
+            
+        super(SeqSleepNet, self).__init__(nn, module_config)
 
 
 class Net(nn.Module):

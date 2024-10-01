@@ -5,10 +5,12 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torchmetrics as tm
+import random
 from pytorch_metric_learning import losses, miners
 from pytorch_metric_learning.distances import CosineSimilarity
 from pytorch_metric_learning.reducers import ThresholdReducer
 from pytorch_metric_learning.regularizers import LpRegularizer
+from physioex.train.networks.utils.loss import SimilarityCombinedLoss
 
 
 class SleepModule(pl.LightningModule):
@@ -99,6 +101,17 @@ class SleepModule(pl.LightningModule):
         embeddings = embeddings.reshape(batch_size * seq_len, -1)
         outputs = outputs.reshape(-1, n_class)
         targets = targets.reshape(-1)
+        if(isinstance(self.loss, SimilarityCombinedLoss)):
+            # Assuming embeddings, targets, and outputs are lists or arrays
+            num_samples = min(len(embeddings), len(embeddings)//seq_len)
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            # Generate random indices
+            random_indices = random.sample(range(len(embeddings)), num_samples)
+
+            # Extract the corresponding elements using the random indices
+            embeddings = torch.stack([embeddings[i] for i in random_indices])
+            targets = torch.tensor([targets[i] for i in random_indices], device=device)
+            outputs = torch.stack([outputs[i] for i in random_indices])
 
         if self.n_classes > 1:
             loss = self.loss(embeddings, outputs, targets)

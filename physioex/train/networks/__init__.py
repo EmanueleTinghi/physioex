@@ -10,6 +10,9 @@ from physioex.train.networks.chambon2018 import Chambon2018Net
 from physioex.train.networks.seqsleepnet import SeqSleepNet
 from physioex.train.networks.sleeptransformer import SleepTransformer
 from physioex.train.networks.tinysleepnet import TinySleepNet
+from physioex.train.networks.seqsleepnet_epochscl import SeqSleepNetEpochScl
+from physioex.train.networks.seqsleepnet_epochsequencesconcscl import SeqSleepNetEpochSequenceConcScl
+from physioex.train.networks.seqsleepnet_epochsequencesumscl import SeqSleepNetEpochSequenceSumScl
 
 # from physioex.train.networks.seqecgnet import SeqECGnet
 
@@ -46,6 +49,24 @@ config = {
         "module_config": read_config("tinysleepnet"),
         "module": TinySleepNet,
         "input_transform": "raw",
+        "target_transform": None,
+    },
+    "seqsleepnet_epochscl": {
+        "module_config": read_config("seqsleepnet"),
+        "module": SeqSleepNetEpochScl,
+        "input_transform": "xsleepnet",
+        "target_transform": None,
+    },
+    "seqsleepnet_epochsequencesumscl": {
+        "module_config": read_config("seqsleepnet"),
+        "module": SeqSleepNetEpochSequenceSumScl,
+        "input_transform": "xsleepnet",
+        "target_transform": None,
+    },
+    "seqsleepnet_epochsequenceconcscl": {
+        "module_config": read_config("seqsleepnet"),
+        "module": SeqSleepNetEpochSequenceConcScl,
+        "input_transform": "xsleepnet",
         "target_transform": None,
     }
 }

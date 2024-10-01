@@ -2,15 +2,16 @@ site_name: PhysioEx
 site_url: https://guidogagl.github.io/physioex/
 nav:
     - Home: index.md
-    - Train: 
-      - train CL: train.md
-      - networks: 
-        - Chambon 2018: train/networks/chambon2018.md
-    - Explain: unavailable.md
-    - Data: unavailable.md
-    - Examples: 
-      - Visualize Latent Space: examples/latent_space_visualization.md
-    - Contribute: contribute.md
+    - Preprocess Module: pages/preprocess.md
+    - Data Module: pages/data.md
+    - Train Module:
+        - Overview: pages/train/train.md
+        - CLI : pages/train/cli.md
+        - Networks: pages/train/networks.md
+    - Explain Module: pages/unavailable.md
+      # - Concept Learning : pages/explain/concept_learning.ipynb
+      # - Spectral Gradients : pages/explain/spectral_gradients.ipynb
+    - Contribute: pages/contribute.md
 theme:
   name: material
   palette:
@@ -26,10 +27,8 @@ theme:
         name: Switch to light mode    
       primary: teal
       accent: lime
-  
   favicon: assets/images/logo_bar.svg
   logo: assets/images/logo_bar.svg
-  
   features:
     - navigation.path
     - navigation.top
@@ -46,7 +45,18 @@ repo_url: https://github.com/guidogagl/physioex
 plugins:
   - search
   - social
-  - mkdocstrings
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: ["docs/api", "./"]
+          options:
+            show_root_heading: false
+            show_source: false
+            heading_level: 4
+  - mknotebooks:
+      execute: false
+      timeout: 100
+      allow_errors: false
 
 extra:
   social:
@@ -59,10 +69,13 @@ extra:
 
 extra_javascript:
   - javascripts/extra.js
+extra_css:
+  - css/custom.css 
 
 markdown_extensions:
   - pymdownx.highlight:
       anchor_linenums: true
+      linenums: true
   - md_in_html
   - pymdownx.inlinehilite
   - pymdownx.snippets
@@ -80,9 +93,10 @@ markdown_extensions:
       permalink: true
   - attr_list
   - pymdownx.emoji:
-      emoji_index: !!python/name:materialx.emoji.twemoji
-      emoji_generator: !!python/name:materialx.emoji.to_svg
-  - admonition
+        emoji_index: !!python/name:material.extensions.emoji.twemoji
+        emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - codehilite
+  - tables
 
 copyright: |
   &copy; 2023 <a href="https://github.com/guidogagl"  target="_blank" rel="noopener">Guido Gagliardi</a>

@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=42", "wheel", "setuptools_scm[toml]>=6.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "physioex"
+version = "1.0.0.dev4"
+description = "A python package for explainable sleep staging via deep learning"
+readme = { file = "README.md", content-type = "text/markdown" }
+authors = [
+    { name = "Guido Gagliardi", email = "guido.gagliardi@phd.unipi.it" }
+]
+license = {file = "LICENSE"}
+dependencies = [
+    "boto3",
+    "botocore",
+    "braindecode",
+    "captum",
+    "dirhash",
+    "h5py",
+    "joblib",
+    "lightning",
+    "loguru",
+    "matplotlib",
+    "npy_append_array",
+    "numpy",
+    "pandas",
+    "paramiko",
+    "psg_utils",
+    "pyEDFlib",
+    "pytorch_lightning",
+    "pytorch_metric_learning",
+    "pyunpack",
+    "PyYAML",
+    "rarfile",
+    "requests",
+    "scikit_learn",
+    "scipy",
+    "seaborn",
+    "setuptools",
+    "torch",
+    "torchmetrics",
+    "tqdm",
+    "wfdb"
+]
+
+[project.urls]
+Homepage = "https://github.com/guidogagl/physioex"
+Documentation = "https://guidogagl.github.io/physioex"
+Repository = "https://github.com/guidogagl/physioex"
+Issues = "https://github.com/guidogagl/physioex/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["physioex*"]
+
+[project.scripts]
+train = "physioex.train.bin.train:train_script"
+finetune = "physioex.train.bin.finetune:finetune_script"
+test_model = "physioex.train.bin.test:test_script"
+preprocess = "physioex.preprocess.bin.main:main"

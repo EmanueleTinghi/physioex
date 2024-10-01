@@ -15,14 +15,20 @@ from physioex.preprocess.utils.signal import xsleepnet_preprocessing
 
 class MASSPreprocessor(Preprocessor):
 
-    def __init__(self, data_folder: str = None):
+    def __init__(
+        self,
+        preprocessors_name: List[str] = ["xsleepnet"],
+        preprocessors=[xsleepnet_preprocessing],
+        preprocessor_shape=[[3, 29, 129]],
+        data_folder: str = None,
+    ):
 
         super().__init__(
             dataset_name="mass",
             signal_shape=[3, 3000],
-            preprocessors_name=["xsleepnet"],
-            preprocessors=[xsleepnet_preprocessing],
-            preprocessors_shape=[[3, 29, 129]],
+            preprocessors_name=preprocessors_name,
+            preprocessors=preprocessors,
+            preprocessors_shape=preprocessor_shape,
             data_folder=data_folder,
         )
 
@@ -64,9 +70,9 @@ class MASSPreprocessor(Preprocessor):
 
         signal = np.array(signal)
         signal = np.transpose(signal, (1, 0, 2))
-        
+
         labels = labels - 1
-        
+
         if min(labels) < 0 or max(labels) > 4:
             logger.error(f"Invalid labels for record {record}")
             logger.error(f"Min label: {min(labels)}")

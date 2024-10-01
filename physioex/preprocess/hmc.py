@@ -13,6 +13,7 @@ from tqdm import tqdm
 from physioex.preprocess.preprocessor import Preprocessor
 from physioex.preprocess.utils.signal import bandpass_filter, xsleepnet_preprocessing
 
+
 def download_file(url, destination):
     response = requests.get(url, stream=True)
     response.raise_for_status()
@@ -104,14 +105,20 @@ def read_edf(file_path):
 
 class HMCPreprocessor(Preprocessor):
 
-    def __init__(self, data_folder: str = None):
+    def __init__(
+        self,
+        preprocessors_name: List[str] = ["xsleepnet"],
+        preprocessors=[xsleepnet_preprocessing],
+        preprocessor_shape=[[4, 29, 129]],
+        data_folder: str = None,
+    ):
 
         super().__init__(
             dataset_name="hmc",
             signal_shape=[4, 3000],
-            preprocessors_name=["xsleepnet"],
-            preprocessors=[xsleepnet_preprocessing],
-            preprocessors_shape=[[4, 29, 129]],
+            preprocessors_name=preprocessors_name,
+            preprocessors=preprocessors,
+            preprocessors_shape=preprocessor_shape,
             data_folder=data_folder,
         )
 

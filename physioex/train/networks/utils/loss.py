@@ -17,7 +17,7 @@ class PhysioExLoss(ABC):
 
 
 class SimilarityCombinedLoss(nn.Module, PhysioExLoss):
-    def __init__(self, params: Dict):
+    def __init__(self):
         super(SimilarityCombinedLoss, self).__init__()
         self.miner = miners.MultiSimilarityMiner()
         weights = params.get("class_weights") if params is not None else torch.ones(5) 
@@ -40,22 +40,18 @@ class SimilarityCombinedLoss(nn.Module, PhysioExLoss):
         return loss + contr_loss_value
 
 class CrossEntropyLoss(nn.Module, PhysioExLoss):
-    def __init__(self, params: Dict = None):
+    def __init__(self):
         super(CrossEntropyLoss, self).__init__()
-
-        # check if class weights are provided in params
-        weights = params.get("class_weights") if params is not None else None
-        self.ce_loss = nn.CrossEntropyLoss(weight=weights)
+        self.ce_loss = nn.CrossEntropyLoss()
 
     def forward(self, emb, preds, targets):
         return self.ce_loss(preds, targets)
 
 
 class RegressionLoss(nn.Module):
-    def __init__(self, params: Dict = None):
+    def __init__(self):
         super(RegressionLoss, self).__init__()
         self.mae_loss = nn.L1Loss()
-        self.params = params
 
     def forward(self, emb, preds, targets):
         mae = self.mae_loss(preds, targets)

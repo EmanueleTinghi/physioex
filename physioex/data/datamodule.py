@@ -2,7 +2,7 @@ import os
 from typing import Callable, List, Union
 
 import pytorch_lightning as pl
-from torch.utils.data import DataLoader, SubsetRandomSampler
+from torch.utils.data import DataLoader, DistributedSampler, Subset, SubsetRandomSampler
 
 from physioex.data.dataset import PhysioExDataset
 
@@ -11,32 +11,33 @@ class PhysioExDataModule(pl.LightningDataModule):
     def __init__(
         self,
         datasets: List[str],
-        versions: List[str] = None,
-        folds: Union[int, List[int]] = -1,
         batch_size: int = 32,
         preprocessing: str = "raw",
         selected_channels: List[int] = ["EEG"],
         sequence_length: int = 21,
         target_transform: Callable = None,
-        #task: str = "sleep",
+        folds: Union[int, List[int]] = -1,
         data_folder: str = None,
+        num_nodes: int = 1,
+        num_workers: int = os.cpu_count(),
     ):
         super().__init__()
 
+        self.datasets_id = datasets
+        self.num_workers = num_workers
+
         self.dataset = PhysioExDataset(
             datasets=datasets,
-            versions=versions,
             preprocessing=preprocessing,
             selected_channels=selected_channels,
             sequence_length=sequence_length,
             target_transform=target_transform,
-            #task=task,
             data_folder=data_folder,
         )
 
         self.batch_size = batch_size
-         
-        # if fold is an int
+        self.hpc = num_nodes > 1
+
         if isinstance(folds, int):
             self.dataset.split(folds)
         else:
@@ -46,33 +47,62 @@ class PhysioExDataModule(pl.LightningDataModule):
             for i, fold in enumerate(folds):
                 self.dataset.split(fold, i)
 
-        self.train_idx, self.valid_idx, self.test_idx = self.dataset.get_sets()
+        train_idx, valid_idx, test_idx = self.dataset.get_sets()
 
-        self.num_workers = os.cpu_count() // 2
+        if not self.hpc:
+            self.train_dataset = self.dataset
+            self.valid_dataset = self.dataset
+            self.test_dataset = self.dataset
 
-    def setup(self, stage: str):
-        return
+            self.train_sampler = SubsetRandomSampler(train_idx)
+            self.valid_sampler = SubsetRandomSampler(valid_idx)
+            self.test_sampler = SubsetRandomSampler(test_idx)
+        else:
+            self.train_dataset = Subset(self.dataset, train_idx)
+            self.valid_dataset = Subset(self.dataset, valid_idx)
+            self.test_dataset = Subset(self.dataset, test_idx)
+
+            self.train_sampler = self.train_dataset
+            self.valid_sampler = self.valid_dataset
+            self.test_sampler = self.test_dataset
 
     def train_dataloader(self):
+        """
+        Returns the DataLoader for the training dataset.
+
+        Returns:
+            DataLoader: DataLoader for the training dataset.
+        """
         return DataLoader(
-            self.dataset,
+            self.train_dataset,
             batch_size=self.batch_size,
-            sampler=SubsetRandomSampler(self.train_idx),
+            sampler=(
+                DistributedSampler(self.train_sampler)
+                if self.hpc
+                else self.train_sampler
+            ),
             num_workers=self.num_workers,
         )
 
     def val_dataloader(self):
+
         return DataLoader(
-            self.dataset,
+            self.valid_dataset,
             batch_size=self.batch_size,
-            sampler=SubsetRandomSampler(self.valid_idx),
+            sampler=(
+                DistributedSampler(self.valid_sampler)
+                if self.hpc
+                else self.valid_sampler
+            ),
             num_workers=self.num_workers,
         )
 
     def test_dataloader(self):
         return DataLoader(
-            self.dataset,
+            self.test_dataset,
             batch_size=self.batch_size,
-            sampler=SubsetRandomSampler(self.test_idx),
+            sampler=(
+                DistributedSampler(self.test_sampler) if self.hpc else self.test_sampler
+            ),
             num_workers=self.num_workers,
         )

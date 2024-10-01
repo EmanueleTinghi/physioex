@@ -11,7 +11,6 @@ from loguru import logger
 from tqdm import tqdm
 
 from physioex.preprocess.utils.signal import OnlineVariance
-
 from physioex.utils import get_data_folder, set_data_folder
 
 
@@ -25,8 +24,24 @@ class Preprocessor:
         preprocessors: List[Callable],
         preprocessors_shape: List[List[int]],
         data_folder: str = None,
-        batch_size: int = 1000,
     ):
+        """
+        Initializes the Preprocessor class.
+
+        Parameters:
+            dataset_name (str):
+                The name of the dataset to be processed.
+            signal_shape (List[int]):
+                A list containing two elements representing the number of channels and the number of timestamps in the signal.
+            preprocessors_name (List[str]):
+                A list of names for the preprocessing functions.
+            preprocessors (List[Callable]):
+                A list of callable preprocessing functions to be applied to the signals.
+            preprocessors_shape (List[List[int]]):
+                A list of shapes corresponding to the output of each preprocessing function.
+            data_folder (str, optional):
+                The folder where the dataset is stored. If None, the default data folder is used.
+        """
 
         assert (
             len(signal_shape) == 2
@@ -36,7 +51,6 @@ class Preprocessor:
             len(preprocessors_name) == len(preprocessors) == len(preprocessors_shape)
         ), "ERR: lists preprocessors_name, preprocessors e preprocessors_shape should match first dimension"
 
-        
         self.data_folder = (
             get_data_folder() if data_folder is None else set_data_folder(data_folder)
         )
@@ -50,39 +64,68 @@ class Preprocessor:
         self.preprocessors_name = preprocessors_name
         self.preprocessors = preprocessors
         self.preprocessors_shape = preprocessors_shape
-        self.batch_size = batch_size
 
     @logger.catch
     def download_dataset(self) -> None:
-        # this method should be provided by the user
-        # the method should take care of checking if the dataset is already on disk
+        """
+        Downloads the dataset if it is not already present on disk.
+        (Optional) Method to be implemented by the user.
+        """
         pass
 
     @logger.catch
     def get_subjects_records(self) -> List[str]:
-        # this method should be provided by the user
-        # the method should return a list containing the path of each subject record
-        # each path is needed to be passed as argument to the function read_subject_record(self, record)
+        """
+        Returns a list containing the paths to each subject's record.
+        (Required) Method to be implemented by the user.
 
+        Returns:
+            List[str] : A list of paths to each subject's record.
+        """
         pass
 
     @logger.catch
     def read_subject_record(self, record: str) -> Tuple[np.array, np.array]:
-        # this method should be provided by the user
-        # the method should return a tuple signal, label with shape [ n_windows, n_channels, n_timestamps ], [ n_windows ]
-        # if the record should be skipped the function should return None, None
+        """
+        Reads a subject's record and returns a tuple containing the signal and labels.
+
+        (Required) Method should be provided by the user.
+
+        Parameters:
+            record (str): The path to the subject's record.
+
+        Returns:
+            Tuple[np.array, np.array]: A tuple containing the signal and labels with shapes
+            [n_windows, n_channels, n_timestamps] and [n_windows], respectively. If the record
+            should be skipped, the function should return None, None.
+        """
         pass
 
     @logger.catch
     def customize_table(self, table) -> pd.DataFrame:
-        # this method should be provided by the user
-        # the method should return a customized version of the dataset table before saving it
+        """
+        Customizes the dataset table before saving it.
+
+        (Optional) Method to be provided by the user.
+
+        Parameters:
+            table (pd.DataFrame): The dataset table to be customized.
+
+        Returns:
+            pd.DataFrame: The customized dataset table.
+        """
         return table
 
     @logger.catch
     def get_sets(self) -> Tuple[List, List, List]:
-        # this method should be provided by the user
-        # the method should return the train valid and test subjects,
+        """
+        Returns the train, validation, and test subjects.
+
+        (Optional) Method to be provided by the user. By default, the method splits the subjects randomly with 70% for training, 15% for validation, and 15% for testing.
+
+        Returns:
+            Tuple[List, List, List]: A tuple containing the train, validation, and test subjects.
+        """
 
         np.random.seed(42)
 
@@ -151,11 +194,15 @@ class Preprocessor:
                 for i in range(len(self.preprocessors_name))
             ]
 
-            labels_memmap = np.memmap(l_path, dtype=np.int16, mode='w+', shape=labels.shape)
+            labels_memmap = np.memmap(
+                l_path, dtype=np.int16, mode="w+", shape=labels.shape
+            )
             labels_memmap[:] = labels[:]
             labels_memmap.flush()
 
-            signal_memmap = np.memmap(s_path, dtype=np.float32, mode='w+', shape=signal.shape)
+            signal_memmap = np.memmap(
+                s_path, dtype=np.float32, mode="w+", shape=signal.shape
+            )
             signal_memmap[:] = signal[:]
             signal_memmap.flush()
 
@@ -163,7 +210,9 @@ class Preprocessor:
                 p_signal = self.preprocessors[i](signal)
                 prep_var[i].add(p_signal)
 
-                p_signal_memmap = np.memmap(p_path, dtype=np.float32, mode='w+', shape=p_signal.shape)
+                p_signal_memmap = np.memmap(
+                    p_path, dtype=np.float32, mode="w+", shape=p_signal.shape
+                )
                 p_signal_memmap[:] = p_signal[:]
                 p_signal_memmap.flush()
 

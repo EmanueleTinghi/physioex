@@ -86,10 +86,9 @@ def read_edf(file_path):
 
     signal = np.transpose(np.array([EEG, EOG, EMG, ECG]), (1, 0, 2))
 
-
     # pass band the signal between 0.3 and 40 Hz
     signal = bandpass_filter(signal, 0.3, 40, 100)
-    
+
     signal = resample(signal, num=30 * 100, axis=2)
 
     # Read the file
@@ -115,14 +114,20 @@ def read_edf(file_path):
 
 class DCSMPreprocessor(Preprocessor):
 
-    def __init__(self, data_folder: str = None):
+    def __init__(
+        self,
+        preprocessors_name: List[str] = ["xsleepnet"],
+        preprocessors=[xsleepnet_preprocessing],
+        preprocessor_shape=[[4, 29, 129]],
+        data_folder: str = None,
+    ):
 
         super().__init__(
             dataset_name="dcsm",
             signal_shape=[4, 3000],
-            preprocessors_name=["xsleepnet"],
-            preprocessors=[xsleepnet_preprocessing],
-            preprocessors_shape=[[4, 29, 129]],
+            preprocessors_name=preprocessors_name,
+            preprocessors=preprocessors,
+            preprocessors_shape=preprocessor_shape,
             data_folder=data_folder,
         )
 

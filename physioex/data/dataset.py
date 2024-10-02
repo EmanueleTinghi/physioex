@@ -2,6 +2,7 @@ import os
 import pickle
 from typing import Callable, List
 
+from loguru import logger
 import numpy as np
 import pandas as pd
 import pytorch_lightning as pl
@@ -78,19 +79,21 @@ class PhysioExDataset(torch.utils.data.Dataset):
             scaling = np.load(
                 os.path.join(self.dataset_folders[-1], preprocessing,  "scaling.npz")
             )
+
             mean, std = scaling["mean"], scaling["std"]
-            
+            logger.info(f"Shape {mean.shape}")   
+            logger.info(f"sel channels {selected_channels}")
             # take the selected channels 
             mean = mean[[DATASETS[dataset].index(channel) for channel in selected_channels]]
             std = std[[DATASETS[dataset].index(channel) for channel in selected_channels]]
-            
+            logger.info(f"Shape after {mean.shape}") 
             self.scaling += [
                 (
                     torch.tensor(mean).float(),
                     torch.tensor(std).float(),
                 )
             ]
-            
+            logger.info(f"{self.scaling[0][0].shape}")
             self.input_shape.append( [ len( DATASETS[dataset] ) ] + input_shape  ) 
 
         # set the table fold to the 0 fold by default

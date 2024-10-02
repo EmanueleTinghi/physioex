@@ -111,7 +111,6 @@ class Trainer:
         )
         
         #### datamodules setup ####
-        
         train_datamodule = PhysioExDataModule(
             datasets=self.datasets,
             versions=self.versions,

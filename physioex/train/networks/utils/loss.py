@@ -19,17 +19,25 @@ class PhysioExLoss(ABC):
 class SimilarityCombinedLoss(nn.Module, PhysioExLoss):
     def __init__(self, params: Dict):
         super(SimilarityCombinedLoss, self).__init__()
-        self.miner = miners.MultiSimilarityMiner()
-        weights = params.get("class_weights") if params is not None else torch.ones(5) 
-        weights = weights if weights is not None else torch.ones(5)  
-        print(f"weights: {weights}")
+        '''self.miner = miners.MultiSimilarityMiner()'''
+        self.miner = miners.BatchEasyHardMiner(
+                        pos_strategy="hard",
+                        neg_strategy="easy"
+                    )
+        
+        if params['params'] is None:
+            weights = torch.ones(5)
+        else:
+            weights = params['params']['class_weights']
+        
         self.contr_loss = losses.TripletMarginLoss(
             distance=CosineSimilarity(),
             reducer=ClassWeightedReducer(weights),
             embedding_regularizer=LpRegularizer(),
         )
 
-        self.ce_loss = nn.CrossEntropyLoss()
+        self.ce_loss = nn.CrossEntropyLoss(weight=weights)
+
 
     def forward(self, emb, preds, targets):
         loss = self.ce_loss(preds, targets)

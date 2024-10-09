@@ -14,7 +14,6 @@ class SeqSleepNet(SleepModule):
     def __init__(self, module_config=module_config, nn: nn.Module = None):
         if nn is None:
             nn = Net(module_config)
-            
         super(SeqSleepNet, self).__init__(nn, module_config)
 
 

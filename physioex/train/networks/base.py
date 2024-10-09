@@ -12,7 +12,6 @@ from pytorch_metric_learning.reducers import ThresholdReducer
 from pytorch_metric_learning.regularizers import LpRegularizer
 from physioex.train.networks.utils.loss import SimilarityCombinedLoss
 
-
 class SleepModule(pl.LightningModule):
     def __init__(self, nn: nn.Module, config: Dict):
         super(SleepModule, self).__init__()
@@ -51,6 +50,7 @@ class SleepModule(pl.LightningModule):
         # loss
         self.loss = config["loss_call"](config["loss_params"])
         self.module_config = config
+
 
     def configure_optimizers(self):
         # Definisci il tuo ottimizzatore

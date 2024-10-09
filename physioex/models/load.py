@@ -57,14 +57,14 @@ def load_pretrained_model(
             raise ValueError(
                 "No checkpoint found for the specified model configuration"
             )
-
+            
     model = (
         model["module"]
         .load_from_checkpoint(ckpt_path, module_config=model["module_config"])
         .to(device)
         .eval()
     )
-
+    
     if softmax:
         # add a softmax activation function at the end of the model to get probabilities ( care with Seq to Seq )
         model = torch.nn.Sequential(model, torch.nn.Softmax(dim=-1))

@@ -92,7 +92,6 @@ def main():
         help="Specify the batch size for training. Expected type: int. Default: 32",
     )
 
-
     parser.add_argument(
         "--data_folder",
         "-df",

@@ -36,7 +36,8 @@ class SimilarityCombinedLoss(nn.Module, PhysioExLoss):
             embedding_regularizer=LpRegularizer(),
         )
 
-        self.ce_loss = nn.CrossEntropyLoss(weight=weights)
+        self.ce_loss = nn.CrossEntropyLoss()
+        '''self.ce_loss = nn.CrossEntropyLoss(weight=weights)'''
 
 
     def forward(self, emb, preds, targets):

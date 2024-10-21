@@ -8,27 +8,107 @@ from pytorch_metric_learning.reducers import ClassWeightedReducer
 from pytorch_metric_learning.regularizers import LpRegularizer
 from torch import nn
 
-
+from loguru import logger
 class PhysioExLoss(ABC):
 
     @abstractmethod
     def forward(self, emb, preds, targets):
         pass
 
-
 class SimilarityCombinedLoss(nn.Module, PhysioExLoss):
     def __init__(self, params: Dict):
         super(SimilarityCombinedLoss, self).__init__()
-        '''self.miner = miners.MultiSimilarityMiner()'''
+        self.print = True
         self.miner = miners.BatchEasyHardMiner(
                         pos_strategy="hard",
                         neg_strategy="easy"
                     )
-        
-        if params['params'] is None:
-            weights = torch.ones(5)
+        '''if len(params) > 0:
+            if params['class_weights'] is None:
+                weights = torch.ones(5)
+            else:
+                weights = params['class_weights']
         else:
-            weights = params['params']['class_weights']
+            weights = torch.ones(5)
+        '''
+
+        if len(params) > 0:
+            if params['params'] is None:
+                weights = torch.ones(5)
+            else:
+                weights = params['params']['class_weights']
+        else:
+            weights = torch.ones(5)
+        logger.info(weights) 
+              
+        self.contr_loss = losses.TripletMarginLoss(
+            distance=CosineSimilarity(),
+            reducer=ClassWeightedReducer(weights),
+            embedding_regularizer=LpRegularizer(),
+        )
+
+        '''self.ce_loss = nn.CrossEntropyLoss()'''
+        self.ce_loss = nn.CrossEntropyLoss(weight=weights)
+
+class SimilarityCombinedLoss_BEHM(nn.Module, PhysioExLoss):
+    def __init__(self, params: Dict):
+        super(SimilarityCombinedLoss_BEHM, self).__init__()
+        self.print = True
+        self.miner = miners.BatchEasyHardMiner(
+                        pos_strategy="hard",
+                        neg_strategy="easy"
+                    )
+        '''if len(params) > 0:
+            if params['class_weights'] is None:
+                weights = torch.ones(5)
+            else:
+                weights = params['class_weights']
+        else:
+            weights = torch.ones(5)'''
+
+        
+        if len(params) > 0:
+            if params['params'] is None:
+                weights = torch.ones(5)
+            else:
+                weights = params['params']['class_weights']
+        else:
+            weights = torch.ones(5)
+
+        print("BEHM weights: ", weights)
+        self.contr_loss = losses.TripletMarginLoss(
+            distance=CosineSimilarity(),
+            reducer=ClassWeightedReducer(weights),
+            embedding_regularizer=LpRegularizer(),
+        )
+
+        '''self.ce_loss = nn.CrossEntropyLoss()'''
+        self.ce_loss = nn.CrossEntropyLoss(weight=weights)
+
+
+    def forward(self, emb, preds, targets):
+        loss = self.ce_loss(preds, targets)
+
+        hard_pairs = self.miner(emb, targets)
+
+        contr_loss_value = self.contr_loss(emb, targets, hard_pairs)
+
+        return loss + contr_loss_value
+
+class SimilarityCombinedLoss_MSM(nn.Module, PhysioExLoss):
+    def __init__(self, params: Dict):
+        super(SimilarityCombinedLoss_MSM, self).__init__()
+        self.miner = miners.MultiSimilarityMiner()
+
+        if len(params) > 0:
+            if params['class_weights'] is None:
+                weights = torch.ones(5)
+            else:
+                weights = params['class_weights']
+        else:
+            weights = torch.ones(5)
+
+        logger.info(weights)
         
         self.contr_loss = losses.TripletMarginLoss(
             distance=CosineSimilarity(),
@@ -76,4 +156,8 @@ class RegressionLoss(nn.Module):
         return combined_loss
 
 
-config = {"cel": CrossEntropyLoss, "scl": SimilarityCombinedLoss, "reg": RegressionLoss}
+config = {"cel": CrossEntropyLoss, 
+          "scl_behm": SimilarityCombinedLoss_BEHM,
+          "scl_msm": SimilarityCombinedLoss_MSM, 
+          "reg": RegressionLoss,
+          'scl': SimilarityCombinedLoss}

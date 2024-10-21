@@ -51,7 +51,7 @@ class Trainer:
         
         self.model_call = network_config["module"]
 
-        if len(datasets) == 1 and datasets[0] == "mass":
+        if len(datasets) == 1:
             module_config["loss_params"]['class_weights'] = torch.tensor([7.6, 15, 2.1, 9, 6])
 
         self.module_config = module_config    

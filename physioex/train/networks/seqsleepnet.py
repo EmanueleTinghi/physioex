@@ -12,9 +12,6 @@ module_config = dict()
 
 class SeqSleepNet(SleepModule):
     def __init__(self, module_config=module_config, nn: nn.Module = None):
-        if nn is None:
-            nn = Net(module_config)
-
         module_config.update(
             {
                 "T": 29,
@@ -30,6 +27,9 @@ class SeqSleepNet(SleepModule):
                 "seqnlayer2": 1,
             }
         )
+
+        if nn is None:
+            nn = Net(module_config)
 
         super(SeqSleepNet, self).__init__(nn, module_config)
 

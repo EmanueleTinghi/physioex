@@ -2,6 +2,7 @@ import os
 import pickle
 from typing import Callable, List
 
+from loguru import logger
 import numpy as np
 import pandas as pd
 import pytorch_lightning as pl

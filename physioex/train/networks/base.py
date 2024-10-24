@@ -8,6 +8,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torchmetrics as tm
+import random
+from physioex.train.networks.utils.loss import SimilarityCombinedLoss_BEHM, SimilarityCombinedLoss_MSM
 
 class SleepModule(pl.LightningModule):
     def __init__(self, nn: nn.Module, config: Dict):
@@ -53,7 +55,7 @@ class SleepModule(pl.LightningModule):
 
         # learning rate
 
-        self.learning_rate = config["learning_rate"]
+        self.learning_rate = config["learning_rate"] 
         self.weight_decay = config["weight_decay"]
 
     def configure_optimizers(self):
@@ -105,13 +107,13 @@ class SleepModule(pl.LightningModule):
         embeddings = embeddings.reshape(batch_size * seq_len, -1)
         outputs = outputs.reshape(-1, n_class)
         targets = targets.reshape(-1)
-        if(isinstance(self.loss, SimilarityCombinedLoss) or isinstance(self.loss, CrossEntropyLoss)):
+        #if(isinstance(self.loss, SimilarityCombinedLoss_BEHM) or isinstance(self.loss, SimilarityCombinedLoss_MSM)):
+        if(isinstance(self.loss, SimilarityCombinedLoss) or isinstance(self.loss, CrossEntropyLoss)): 
             # Assuming embeddings, targets, and outputs are lists or arrays
-            num_samples = min(len(embeddings), len(embeddings)//seq_len)
+            num_samples = min(len(embeddings), len(embeddings)//(seq_len))
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             # Generate random indices
             random_indices = random.sample(range(len(embeddings)), num_samples)
-
             # Extract the corresponding elements using the random indices
             embeddings = torch.stack([embeddings[i] for i in random_indices])
             targets = torch.tensor([targets[i] for i in random_indices], device=device)

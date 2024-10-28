@@ -124,7 +124,13 @@ class MemmapReader(Reader):
 
         y = np.memmap(labels_path, dtype="int16", mode="r", shape=labels_shape)
 
-        if num_windows > self.L:
+        if relative_id + self.L > num_windows:
+            y = y[relative_id:]
+            
+            remainer = self.L - len(y)
+            # associate the padded values to the class 6
+            y = np.concatenate([y, np.ones(remainer) * 6 ], axis=0)        
+        else:
             y = y[relative_id : relative_id + self.L]
 
         y = torch.tensor(y).long()

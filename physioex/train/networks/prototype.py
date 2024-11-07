@@ -37,14 +37,39 @@ class ProtoSleepNet(SleepModule):
         plt.title("Prototypes")
         self.logger.experiment.add_figure(f"{log}-age-corr", plt.gcf(), self.step )
         plt.close()
-        
+ 
+    def training_step(self, batch, batch_idx):
+        # get the logged metrics
+        if "val_loss" not in self.trainer.logged_metrics:
+            self.log("val_loss", float("inf"))
+        # Logica di training
+        inputs, targets = batch
+        embeddings, outputs, huber_loss = self.encode(inputs)
+
+        return self.compute_loss(embeddings, outputs, targets, huber_loss)
+
+    def validation_step(self, batch, batch_idx):
+        # Logica di validazione
+        inputs, targets = batch
+        embeddings, outputs, huber_loss = self.encode(inputs)
+
+        return self.compute_loss(embeddings, outputs, targets, huber_loss, "val")
+
+    def test_step(self, batch, batch_idx):
+        # Logica di training
+        inputs, targets = batch
+
+        embeddings, outputs, huber_loss = self.encode(inputs)
+
+        return self.compute_loss(embeddings, outputs, targets, huber_loss, "test", log_metrics=True)       
 
     
     def compute_loss(
         self,
         embeddings,
         outputs,
-        targets,
+        targets, 
+        huber_loss,
         log: str = "train",
         log_metrics: bool = False,
     ):
@@ -53,7 +78,41 @@ class ProtoSleepNet(SleepModule):
         if self.step % 250 == 0 and log == "train":
             self.log_prototypes(log)
         
-        return super().compute_loss(embeddings, outputs, targets, log, log_metrics)
+        batch_size, seq_len, n_class = outputs.size()
+
+        embeddings = embeddings.reshape(batch_size * seq_len, -1)
+        outputs = outputs.reshape(-1, n_class)
+        targets = targets.reshape(-1)
+
+        if self.n_classes > 1:
+            ce_loss = self.loss(embeddings, outputs, targets)
+
+            loss = ce_loss + huber_loss
+
+            self.log(f"{log}_ce_loss", ce_loss, prog_bar=True)
+            self.log(f"{log}_huber_loss", huber_loss, prog_bar=True)
+            self.log(f"{log}_loss", loss, prog_bar=True)
+            self.log(f"{log}_acc", self.wacc(outputs, targets), prog_bar=True)
+            self.log(f"{log}_f1", self.wf1(outputs, targets), prog_bar=True)
+        else:
+            outputs = outputs.view(-1)
+
+            loss = ce_loss + huber_loss
+
+            self.log(f"{log}_ce_loss", ce_loss, prog_bar=True)
+            self.log(f"{log}_huber_loss", huber_loss, prog_bar=True)
+            self.log(f"{log}_loss", loss, prog_bar=True)
+            self.log(f"{log}_r2", self.r2(outputs, targets), prog_bar=True)
+            self.log(f"{log}_mae", self.mae(outputs, targets), prog_bar=True)
+            self.log(f"{log}_mse", self.mse(outputs, targets), prog_bar=True)
+
+        if log_metrics and self.n_classes > 1:
+            self.log(f"{log}_ck", self.ck(outputs, targets))
+            self.log(f"{log}_pr", self.pr(outputs, targets))
+            self.log(f"{log}_rc", self.rc(outputs, targets))
+            self.log(f"{log}_macc", self.macc(outputs, targets))
+            self.log(f"{log}_mf1", self.mf1(outputs, targets))
+        return loss
         
 class NN(nn.Module):
     def __init__( self, 
@@ -83,7 +142,7 @@ class NN(nn.Module):
         # x shape : (batch_size, seq_len, n_chan, n_samp)
         batch_size, seq_len, _, _ = x.size()
         
-        proto, _ = self.epoch_encoder( x )
+        proto, _, huber_dist = self.epoch_encoder( x )
         
         # proto shape : (batch_size, seq_len, N, hidden_size)
         # we selected N prototypes from each epoch in the sequence
@@ -99,7 +158,7 @@ class NN(nn.Module):
         clf = self.clf( proto ).reshape( batch_size, seq_len, -1 )
         proto = proto.reshape( batch_size, seq_len, -1 )        
         
-        return proto, clf
+        return proto, clf, huber_dist
             
     def forwad( self, x ):        
         x, y = self.encode( x )       
@@ -146,6 +205,8 @@ class PrototypeLayer( nn.Module ):
         N : int = 1, # number of prototypes to learn
         ):
         super(PrototypeLayer, self).__init__()
+        self.a = 1
+        self.b = -1
 
         self.prototypes = nn.Parameter( torch.zeros( N, hidden_size ), requires_grad=True )
         
@@ -165,15 +226,19 @@ class PrototypeLayer( nn.Module ):
 
         # dist shape : (batch_size * seq_len, N)
         # select the prototype with the minimum distance with gumbel softmax
-        dist = - torch.log( dist )
+        # dist = - torch.log( dist )
         # dist shape : (batch_size * seq_len, N)
+        huber_dist = 1/self.a * (torch.exp(self.a * dist) + torch.exp(-self.a * dist) - self.b)
         
+        logits = torch.nn.functional.gumbel_softmax(huber_dist, tau=1.0, hard=True)
+
+        # Step 1: Find the indices of the non-zero elements in each row of dist
+        indices = torch.argmax(logits, dim=1, keepdim=True)  # Shape: [2688, 1]
+
+        # Step 2: Gather the values from dist at those indices
+        huber_dist = torch.gather(huber_dist, 1, indices)  # Shape: [2688, 1]
         
-        logits = torch.nn.functional.gumbel_softmax(dist, tau=1.0, hard=True)
-        
-        dist = dist * logits
-        
-        print( "Dist shape: ", dist.shape)
+        print( "Dist shape: ", huber_dist.shape)
         print( "Dist expected shape, " , (batch_size, 1) )
 
         # logits shape : (batch_size * seq_len, N)        
@@ -186,7 +251,7 @@ class PrototypeLayer( nn.Module ):
         x = x.reshape( batch_size, seq_len, hidden_size )
         proto = proto.reshape( batch_size, seq_len, hidden_size )
         
-        return proto, x
+        return proto, x, huber_dist
         
         
 class EpochEncoder( nn.Module ):

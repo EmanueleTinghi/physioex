@@ -44,24 +44,24 @@ class ProtoSleepNet(SleepModule):
             self.log("val_loss", float("inf"))
         # Logica di training
         inputs, targets = batch
-        embeddings, outputs, huber_loss = self.encode(inputs)
+        embeddings, outputs, huber_dist = self.encode(inputs)
 
-        return self.compute_loss(embeddings, outputs, targets, huber_loss)
+        return self.compute_loss(embeddings, outputs, targets, huber_dist)
 
     def validation_step(self, batch, batch_idx):
         # Logica di validazione
         inputs, targets = batch
-        embeddings, outputs, huber_loss = self.encode(inputs)
+        embeddings, outputs, huber_dist = self.encode(inputs)
 
-        return self.compute_loss(embeddings, outputs, targets, huber_loss, "val")
+        return self.compute_loss(embeddings, outputs, targets, huber_dist, "val")
 
     def test_step(self, batch, batch_idx):
         # Logica di training
         inputs, targets = batch
 
-        embeddings, outputs, huber_loss = self.encode(inputs)
+        embeddings, outputs, huber_dist = self.encode(inputs)
 
-        return self.compute_loss(embeddings, outputs, targets, huber_loss, "test", log_metrics=True)       
+        return self.compute_loss(embeddings, outputs, targets, huber_dist, "test", log_metrics=True)       
 
     
     def compute_loss(
@@ -69,7 +69,7 @@ class ProtoSleepNet(SleepModule):
         embeddings,
         outputs,
         targets, 
-        huber_loss,
+        huber_dist,
         log: str = "train",
         log_metrics: bool = False,
     ):
@@ -86,7 +86,10 @@ class ProtoSleepNet(SleepModule):
 
         if self.n_classes > 1:
             ce_loss = self.loss(embeddings, outputs, targets)
+            huber_loss = torch.mean(huber_dist)
 
+            print("Huber Loss: ", huber_loss)
+            print("CE Loss: ", ce_loss)
             loss = ce_loss + huber_loss
 
             self.log(f"{log}_ce_loss", ce_loss, prog_bar=True)
@@ -96,6 +99,8 @@ class ProtoSleepNet(SleepModule):
             self.log(f"{log}_f1", self.wf1(outputs, targets), prog_bar=True)
         else:
             outputs = outputs.view(-1)
+            ce_loss = self.loss(embeddings, outputs, targets)
+            huber_loss = torch.mean(huber_dist)
 
             loss = ce_loss + huber_loss
 
@@ -238,8 +243,8 @@ class PrototypeLayer( nn.Module ):
         # Step 2: Gather the values from dist at those indices
         huber_dist = torch.gather(huber_dist, 1, indices)  # Shape: [2688, 1]
         
-        print( "Dist shape: ", huber_dist.shape)
-        print( "Dist expected shape, " , (batch_size, 1) )
+        #print( "Dist shape: ", huber_dist.shape)
+        #print( "Dist expected shape, " , (batch_size*seq_len, 1) )
 
         # logits shape : (batch_size * seq_len, N)        
         # select the prototype with the maximum probability for each sample
@@ -303,12 +308,12 @@ class EpochEncoder( nn.Module ):
 
         x = x.reshape( batch_size, seq_len*self.N, self.out_size )
         
-        proto, residual = self.prototype( x )
+        proto, residual, huber_dist = self.prototype( x )
         
         proto = proto.reshape( batch_size, seq_len, self.N, self.out_size )
         residual = residual.reshape( batch_size, seq_len, self.N, self.out_size )
         
-        return proto, residual
+        return proto, residual, huber_dist
 
 class HardAttentionLayer(nn.Module):
     def __init__(self, 

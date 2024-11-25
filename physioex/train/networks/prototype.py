@@ -86,12 +86,22 @@ class ProtoSleepNet(SleepModule):
         targets = targets.reshape(-1)
 
         if self.n_classes > 1:
+            ce_loss = self.loss(embeddings, outputs, targets)
+            total_loss = loss + ce_loss
+
             self.log(f"{log}_loss", loss, prog_bar=True)
+            self.log(f"{log}_ce_loss", ce_loss, prog_bar=True)
+            self.log(f"{log}_total_loss", total_loss, prog_bar=True)
             self.log(f"{log}_acc", self.wacc(outputs, targets), prog_bar=True)
             self.log(f"{log}_f1", self.wf1(outputs, targets), prog_bar=True)
         else:
             outputs = outputs.view(-1)
+            ce_loss = self.loss(embeddings, outputs, targets)
+            total_loss = loss + ce_loss
+
             self.log(f"{log}_loss", loss, prog_bar=True)
+            self.log(f"{log}_ce_loss", ce_loss, prog_bar=True)
+            self.log(f"{log}_total_loss", loss + ce_loss, prog_bar=True)
             self.log(f"{log}_r2", self.r2(outputs, targets), prog_bar=True)
             self.log(f"{log}_mae", self.mae(outputs, targets), prog_bar=True)
             self.log(f"{log}_mse", self.mse(outputs, targets), prog_bar=True)
@@ -102,7 +112,7 @@ class ProtoSleepNet(SleepModule):
             self.log(f"{log}_rc", self.rc(outputs, targets))
             self.log(f"{log}_macc", self.macc(outputs, targets))
             self.log(f"{log}_mf1", self.mf1(outputs, targets))
-        return loss
+        return total_loss
         
 class NN(nn.Module):
     def __init__( self, 
@@ -132,18 +142,16 @@ class NN(nn.Module):
         # x shape : (batch_size, seq_len, n_chan, n_samp)
         batch_size, seq_len, _, _ = x.size()
         
-        proto, _, loss = self.epoch_encoder( x )
+        proto, _, loss = self.epoch_encoder( x )    # proto shape : (batch_size, seq_len, N, hidden_size)
         
-        # proto shape : (batch_size, seq_len, N, hidden_size)
         # we selected N prototypes from each epoch in the sequence
         
         # sum the prototypes to get the epoch representation
         N = proto.size(2)
-        proto = torch.sum( proto, dim=2 ) / N
+        proto = torch.sum( proto, dim=2 ) / N   # shape : (batch_size, seq_len, hidden_size)        
         
-        # proto shape : (batch_size, seq_len, hidden_size)
         # encode the sequence with the transformer        
-        proto = self.sequence_encoder( proto ).reshape( batch_size*seq_len, -1 )
+        proto = self.sequence_encoder( proto ).reshape( batch_size*seq_len, -1 )    # shape : (batch_size * seq_len, hidden_size)
         
         clf = self.clf( proto ).reshape( batch_size, seq_len, -1 )
         proto = proto.reshape( batch_size, seq_len, -1 )        
@@ -151,8 +159,7 @@ class NN(nn.Module):
         return proto, clf, loss
             
     def forward( self, x ):        
-        x, y = self.encode( x )       
-                
+        x, y, loss = self.encode( x )                   
         return y
 
 
@@ -201,7 +208,7 @@ class PrototypeLayer( nn.Module ):
         self.proto_num = N
 
         self.prototypes = nn.Embedding(self.proto_num, self.proto_dim)
-        self.prototypes.weight.data.uniform_(-1/self.proto_num, 1/self.proto_num)
+        self.prototypes.weight.data.uniform_(0, 2)
         self.commitment_cost = commitment_cost
 
     def forward( self, x ):
@@ -282,7 +289,7 @@ class EpochEncoder( nn.Module ):
         x = x.reshape( batch_size * seq_len, n_chan*(n_samp//self.hidden_size), -1 )
         x = self.sampler( x ) # shape : (batch_size * seq_len, N, hidden_size)
         x = x.reshape( batch_size * seq_len * self.N, 1,  -1 )
-        
+
         x = self.conv1( x ) # shape : (batch_size * seq_len * self.N, out_size)
 
         x = x.reshape( batch_size, seq_len*self.N, self.out_size )

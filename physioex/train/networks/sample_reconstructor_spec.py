@@ -1,10 +1,12 @@
 import math
+import time
 from physioex.train.networks.base import SleepModule
 import torch
 import torch.nn.functional as F
 from physioex.train.networks.prototype_kl import ProtoSleepNet, NN
-from scipy.signal import welch
 
+from scipy.signal import spectrogram
+import numpy as np
 import torch.nn as nn
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -28,14 +30,17 @@ class SampleReconstructor(SleepModule):
         # y label equal to prototype index, x label equal to the feature index
         # display the cbar with diverging colors
         fig, axes = plt.subplots(4, 5, figsize=(25, 20))
+        fig_s, axes_s = plt.subplots(4, 5, figsize=(25, 20))
         axes = axes.flatten()
-        for i, ax in enumerate(axes):
-            sns.lineplot(x = range(600), y = x[i].flatten(), ax=ax, color="blue", label="Original")
-            sns.lineplot(x = range(600), y = x_hat[i].flatten(), ax=ax, color="red", label="Reconstructed")
+        axes_s = axes_s.flatten()
+        for i, (ax, ax_s) in enumerate(zip(axes, axes_s)):
+            x_max = max(x[i].max(), x_hat[i].max())
+            x_min = min(x[i].min(), x_hat[i].min())
+            sns.heatmap(x[i], ax=ax, label="Original", vmin=x_min, vmax=x_max, cmap="coolwarm", cbar=False)
+            sns.heatmap(x_hat[i], ax=ax_s, label="Reconstructed", vmin=x_min, vmax=x_max, cmap="coolwarm", cbar=False)
 
-        handles, labels = ax.get_legend_handles_labels()
-        fig.legend(handles, labels, loc='upper right')
-        self.logger.experiment.add_figure(f"{log}-reconstruction", fig, self.step )
+        self.logger.experiment.add_figure(f"{log}-original", fig, self.step )
+        self.logger.experiment.add_figure(f"{log}-reconstruction", fig_s, self.step)
         plt.close()    
 
     
@@ -62,8 +67,9 @@ class SampleReconstructor(SleepModule):
         x_hat, x = self.forward(inputs)
 
         return self.compute_loss(x_hat, x, "test", log_metrics=True)
-
+    
     def calculate_entropy(self, x):
+        # x_shape = [-1, 5*128]
         x = torch.abs(x)
         D = torch.sum(x, dim=-1)
         x = torch.einsum("ij,i->ij", x, 1.0 / D)
@@ -71,89 +77,32 @@ class SampleReconstructor(SleepModule):
         entropy = x * torch.log(x + 1e-8)
         entropy = -torch.sum(entropy, dim=-1)
         return entropy
-    
-    def welch_psd(self, x, fs=1.0, nperseg=256, noverlap=None, nfft=None):
-        if noverlap is None:
-            noverlap = nperseg // 2
-        if nfft is None:
-            nfft = nperseg
-    
-        # Window function
-        window = torch.hamming_window(nperseg, periodic=False).to(x.device)
-        #print("X: ", x.shape)
-        # Calculate the number of segments
-        step = nperseg - noverlap
-        shape = (x.size(0) - noverlap) // step, nperseg
-        #print("Shape: ", shape)
-        strides = x.stride(0) * step, x.stride(0)
-        segments = torch.as_strided(x, size=shape, stride=strides)
-        print("Segments: ", segments.shape)
-
-        # Apply window to each segment
-        segments = segments * window
-    
-        # Compute FFT and power spectral density
-        fft_segments = torch.fft.rfft(segments, n=nfft)
-        psd = (fft_segments.abs() ** 2) / (fs * window.sum() ** 2)
-    
-        # Average over segments
-        #psd = psd.mean(dim=0)
-    
-        # Frequency axis
-        freqs = torch.fft.rfftfreq(nfft, 1 / fs)
-    
-        return freqs, psd
 
     def compute_loss(self, 
-                    x_hat, 
-                    x, 
+                    Sxx_hat, 
+                    Sxx, 
                     log: str = "train", 
                     log_metrics: bool = False):
         self.step += 1
         
         if self.step % 250 == 0:
-            self.log_reconstructions(x, x_hat, log)
+            self.log_reconstructions(Sxx, Sxx_hat, log)
 
-        x = x.reshape(-1, 600)
-        mse_loss = torch.nn.functional.mse_loss(x, x_hat)
+        Sxx = Sxx.reshape(-1, 5*128)
+        Sxx_hat = Sxx_hat.reshape(-1, 5*128)
+        mse_loss = torch.nn.functional.mse_loss(Sxx, Sxx_hat)
 
-        '''x_hat_entropy = self.calculate_entropy(x_hat)
-        x_entropy = self.calculate_entropy(x)
-        entropy_loss = torch.nn.functional.mse_loss(x_entropy, x_hat_entropy)*10
+        x_hat_entropy = self.calculate_entropy(Sxx_hat)
+        x_entropy = self.calculate_entropy(Sxx)
+        
+        entropy_loss = torch.nn.functional.mse_loss(x_hat_entropy, x_entropy)
 
-        x_hat_std = torch.std(x_hat, dim=-1)
-        x_std = torch.std(x, dim=-1)
-        std_loss = torch.nn.functional.mse_loss(x_std, x_hat_std)'''
-
-        _, x_psd_cuda = self.welch_psd(x, fs=100, nperseg=100, noverlap=50, nfft=256)
-        _, x_hat_psd_cuda = self.welch_psd(x_hat, fs=100, nperseg=100, noverlap=50, nfft=256)
-
-        print("PSD_cuda: ", x_psd_cuda.shape, x_hat_psd_cuda.shape)
-
-        _, x_psd = welch(x.clone().detach().cpu().numpy(), fs=100, nperseg=100, noverlap=50, nfft=256)
-        _, x_hat_psd = welch(x_hat.clone().detach().cpu().numpy(), fs=100, nperseg=100, noverlap=50, nfft=256)
-
-        print("PSD: ", x_psd.shape, x_hat_psd.shape)
-
-        #print("PSD: ", x_psd.shape, x_hat_psd.shape)
-        psd_loss = torch.nn.functional.mse_loss(torch.tensor(x_psd), torch.tensor(x_hat_psd))
-
-        #print("PSD: ", x_psd.shape, x_hat_psd.shape)
-        psd_loss = torch.nn.functional.mse_loss(torch.tensor(x_psd), torch.tensor(x_hat_psd))       
-        psd_loss_cuda = torch.nn.functional.mse_loss(x_psd_cuda, x_hat_psd_cuda)
-        #print("PSD: ", psd_loss.shape, psd_loss_cuda.shape)
-        psd_diff = psd_loss - psd_loss_cuda
-
-        total_loss = mse_loss + psd_loss#+ entropy_loss + std_loss
+        total_loss = mse_loss + entropy_loss
 
         # Log individual losses
         self.log(f"{log}_mse_loss", mse_loss, prog_bar=True, on_step=True, on_epoch=True)
-        self.log(f"{log}_psd_loss", psd_loss, prog_bar=True, on_step=True, on_epoch=True)
-        self.log(F"{log}_psd_diff", psd_diff, prog_bar=True, on_step=True, on_epoch=True)
-        #self.log(f"{log}_entropy_loss", entropy_loss, prog_bar=True, on_step=True, on_epoch=True)
-        #self.log(f"{log}_std_loss", std_loss, prog_bar=True, on_step=True, on_epoch=True)
+        self.log(f"{log}_entropy_loss", entropy_loss, prog_bar=True, on_step=True, on_epoch=True)
         self.log(f"{log}_total_loss", total_loss, prog_bar=True, on_step=True, on_epoch=True)
-        self.log(f"{log}_acc", -total_loss, prog_bar=True, on_step=True, on_epoch=True)
 
         return total_loss
 
@@ -179,7 +128,6 @@ class PositionalEncoding(nn.Module):
 class NN(nn.Module):
     def __init__(self, config: dict):
         super(NN, self).__init__()
-        #print("Proto CK: ", config["proto_ck"])
         # Load the pre-trained ProtoSleepNet model
         self.proto_model = ProtoSleepNet.load_from_checkpoint(config["proto_ck"], 
                                                               module_config=config)
@@ -188,28 +136,28 @@ class NN(nn.Module):
         for param in self.proto_model.parameters():
             param.requires_grad = False
 
-        self.pe = PositionalEncoding(100)
+        self.pe = PositionalEncoding(128)
         
         # Define the reconstruction layers using transposed convolutions
         self.reconstruction_layer = nn.Sequential(
-            nn.Linear(256, 100*6),
+            nn.Linear(256, 128*5),
             nn.ReLU(),
-            nn.LayerNorm(100*6),
+            nn.LayerNorm(128*5),
             nn.Dropout(0.25),
         )
 
         self.residual_layer = nn.Sequential(
-            nn.Conv1d( 1, 8, 5, 1, 2),
+            nn.Conv2d( 1, 8, 5, 1, 2),
             nn.ReLU(),
-            nn.BatchNorm1d(8),
-            nn.Conv1d( 8, 16, 5, 1, 2),
+            nn.BatchNorm2d(8),
+            nn.Conv2d( 8, 16, 5, 1, 2),
             nn.ReLU(),
-            nn.BatchNorm1d(16),
-            nn.Conv1d( 16, 1, 5, 1, 2),
+            nn.BatchNorm2d(16),
+            nn.Conv2d( 16, 1, 5, 1, 2),
             nn.ReLU(),
         )
         
-        self.transformer_layer = nn.TransformerEncoderLayer(d_model=100,
+        self.transformer_layer = nn.TransformerEncoderLayer(d_model=128,
                                                             nhead=4, 
                                                             dim_feedforward=256,
                                                             activation='relu',
@@ -228,24 +176,46 @@ class NN(nn.Module):
     def deconvolve(self, z):        
         # Reconstruct the original sample from the combined tensor
         z_hat = self.reconstruction_layer(z)
-        z_hat = z_hat.reshape(-1, 6, 100)
+        z_hat = z_hat.reshape(-1, 5, 128)
         z_hat = self.pe(z_hat)
         z_hat = self.transformer(z_hat)
-        z_hat = z_hat.reshape(-1, 1, 600)
+        z_hat = z_hat.reshape(-1, 1, 5, 128)
         
-        return (z_hat + self.residual_layer(z_hat)).reshape(-1, 600)
+        return (z_hat + self.residual_layer(z_hat))
     
     def forward(self, x):
         # x = [batch_size, seq_len, n_channels, 3000]
-        
+        #start_forward = time.time()
         x = x.reshape(-1, 1, 600)   # [batch_size*seq_len*num_sections, 1, 600]
-
+        
         # Get the prototypes from the frozen ProtoSleepNet model
         with torch.no_grad():
             p = self.proto_model.nn.epoch_encoder.conv1(x)  # Shape: [batch_size*seq_len*num_sections, 256]
             proto, res, _ = self.proto_model.nn.epoch_encoder.prototype(p)  # Shape: [batch_size*seq_len*num_sections, 256]
+
+
+        start_spectrogram = time.time()
+        _, _, Sxx = spectrogram(
+            x.detach().cpu().numpy().astype(np.double),
+            fs=100,
+            window="hamming",
+            nperseg=200,
+            noverlap=100,
+            nfft=256,
+        )
+        #print(f)
+        Sxx = Sxx[:,:, :128]
+        # log_10 scale the spectrogram safely (using epsilon)
+        Sxx = 20 * np.log10(np.abs(Sxx) + np.finfo(float).eps)
+        Sxx = torch.tensor(Sxx, dtype=torch.float32, device=x.device)
+        Sxx = Sxx.permute(0,1,3,2)
+        #end_transform = time.time()
+        #print(f"Transform time: {end_transform - start_spectrogram}")
             
         z = proto + res
-        x_hat = self.deconvolve(z)
+        Sxx_hat = self.deconvolve(z)
 
-        return x_hat, x
+        #end_forward = time.time()
+        #print(f"Forward time: {end_forward - start_forward}")
+        #print(f"Percentage of time in calculating spectrogram: {((end_transform - start_spectrogram) / (end_forward - start_forward) * 100):.1f}%")
+        return Sxx_hat, Sxx

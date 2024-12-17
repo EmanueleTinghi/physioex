@@ -11,13 +11,12 @@ from typing import Union
 def read_config(args: ArgumentParser) -> dict:
 
     args = vars(args)
-
+    
     if args["config"] is not None:
         with open(args.config, "r") as file:
             config = yaml.safe_load(file)
 
         args.update(config)
-
     return args
 
 
@@ -250,14 +249,6 @@ class PhysioExParser:
             default=None,
             type=str,
             help="Specify the model checkpoint, if None a pretrained model is loaded. Expected type: str. Default: None",
-        )
-
-        cls.parser.add_argument(
-            "-rp",
-            "--results_path",
-            default=None,
-            type=str,
-            help="Specify the path where to store the results. Expected type: str. Default: None",
         )
 
         parser = cls.parser.parse_args()

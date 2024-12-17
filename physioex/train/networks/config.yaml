@@ -41,6 +41,178 @@ protosleepnet:
     N : 1
     n_prototypes : 25
 
+weighted_protosleepnet:
+  model: physioex.train.networks.prototype:ProtoSleepNet
+  preprocessing : raw
+  target_transform: null
+  model_kwargs:
+    proto_lenght : 5
+    N : 1
+    n_prototypes : 25
+    loss: physioex.train.networks.utils.loss:WeightedCrossEntropyLoss
+
+protosleepnet_n1p25:
+  model: physioex.train.networks.prototype_kl:ProtoSleepNet
+  preprocessing : raw
+  target_transform: null
+  model_kwargs:
+    proto_lenght : 5
+    N : 1
+    n_prototypes : 25
+
+protosleepnet_n1p50:
+  model: physioex.train.networks.prototype_kl:ProtoSleepNet
+  preprocessing : raw
+  target_transform: null
+  model_kwargs:
+    proto_lenght : 5
+    N : 1
+    n_prototypes : 50
+
+protosleepnet_n1p125:
+  model: physioex.train.networks.prototype_kl:ProtoSleepNet
+  preprocessing : raw
+  target_transform: null
+  model_kwargs:
+    proto_lenght : 5
+    N : 1
+    n_prototypes : 125
+
+protosleepnet_n2p25:
+  model: physioex.train.networks.prototype_kl:ProtoSleepNet
+  preprocessing : raw
+  target_transform: null
+  model_kwargs:
+    proto_lenght : 5
+    N : 2
+    n_prototypes : 25
+  
+protosleepnet_n2p50:
+  model: physioex.train.networks.prototype_kl:ProtoSleepNet
+  preprocessing : raw
+  target_transform: null
+  model_kwargs:
+    proto_lenght : 5
+    N : 2
+    n_prototypes : 50
+
+protosleepnet_n2p125:
+  model: physioex.train.networks.prototype_kl:ProtoSleepNet
+  preprocessing : raw
+  target_transform: null
+  model_kwargs:
+    proto_lenght : 5
+    N : 2
+    n_prototypes : 125
+
+protosleepnet_n3p25:
+  model: physioex.train.networks.prototype_kl:ProtoSleepNet
+  preprocessing : raw
+  target_transform: null
+  model_kwargs:
+    proto_lenght : 5
+    N : 3
+    n_prototypes : 25
+  
+protosleepnet_n3p50:
+  model: physioex.train.networks.prototype_kl:ProtoSleepNet
+  preprocessing : raw
+  target_transform: null
+  model_kwargs:
+    proto_lenght : 5
+    N : 3
+    n_prototypes : 50
+
+protosleepnet_n3p125:
+  model: physioex.train.networks.prototype_kl:ProtoSleepNet
+  preprocessing : raw
+  target_transform: null
+  model_kwargs:
+    proto_lenght : 5
+    N : 3
+    n_prototypes : 125
+
+protosleepnet_n5p25:
+  model: physioex.train.networks.prototype_kl:ProtoSleepNet
+  preprocessing : raw
+  target_transform: null
+  model_kwargs:
+    proto_lenght : 5
+    N : 5
+    n_prototypes : 25
+  
+protosleepnet_n5p50:
+  model: physioex.train.networks.prototype_kl:ProtoSleepNet
+  preprocessing : raw
+  target_transform: null
+  model_kwargs:
+    proto_lenght : 5
+    N : 5
+    n_prototypes : 50
+
+protosleepnet_n5p125:
+  model: physioex.train.networks.prototype_kl:ProtoSleepNet
+  preprocessing : raw
+  target_transform: null
+  model_kwargs:
+    proto_lenght : 5
+    N : 5
+    n_prototypes : 125
+
+protosleepnet_n7p25:
+  model: physioex.train.networks.prototype_kl:ProtoSleepNet
+  preprocessing : raw
+  target_transform: null
+  model_kwargs:
+    proto_lenght : 5
+    N : 7
+    n_prototypes : 25
+
+protosleepnet_n7p50:
+  model: physioex.train.networks.prototype_kl:ProtoSleepNet
+  preprocessing : raw
+  target_transform: null
+  model_kwargs:
+    proto_lenght : 5
+    N : 7
+    n_prototypes : 50
+
+protosleepnet_n7p125:
+  model: physioex.train.networks.prototype_kl:ProtoSleepNet
+  preprocessing : raw
+  target_transform: null
+  model_kwargs:
+    proto_lenght : 5
+    N : 7
+    n_prototypes : 125
+
+protosleepnet_reconstructor:
+  model: physioex.train.networks.sample_reconstructor:SampleReconstructor
+  preprocessing : raw
+  target_transform: null
+  model_kwargs:
+    proto_ck: /home/tinghi/models/hmc/temp/lr/fold=-1-epoch=10-step=15744-val_loss=inf.ckpt
+    proto_model: "protosleepnet_n3p125"
+    proto_lenght : 5
+    N : 3
+    n_prototypes : 125
+    loss: physioex.train.networks.utils.loss:RegressionLoss
+
+    learning_rate : .0002
+
+protosleepnet_reconstructor_mass:
+  model: physioex.train.networks.sample_reconstructor:SampleReconstructor
+  preprocessing : raw
+  target_transform: null
+  model_kwargs:
+    proto_ck: /home/tinghi/models/mass/proto_val_loss/n7/25/fold=-1-epoch=9-step=14279-val_loss=inf.ckpt
+    proto_model: "protosleepnet_n7p25"
+    proto_lenght : 5
+    N : 7
+    n_prototypes : 25
+    loss: physioex.train.networks.utils.loss:RegressionLoss
+
+    learning_rate : .0002
 
 wholeagenet:
   model: physioex.train.networks.seqsexnet:WholeNightAgeNet

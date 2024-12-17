@@ -14,6 +14,7 @@ from physioex.train.networks.utils.loss import SimilarityCombinedLoss_BEHM, Simi
 class SleepModule(pl.LightningModule):
     def __init__(self, nn: nn.Module, config: Dict):
         super(SleepModule, self).__init__()
+
         self.save_hyperparameters(ignore=["nn"])
         self.nn = nn
 
@@ -84,7 +85,7 @@ class SleepModule(pl.LightningModule):
             "monitor": "val_loss",
             "interval": "step",
             "frequency": 1000,
-        }
+        }   
         return [self.opt], [scheduler]
 
     def forward(self, x):
@@ -107,17 +108,6 @@ class SleepModule(pl.LightningModule):
         embeddings = embeddings.reshape(batch_size * seq_len, -1)
         outputs = outputs.reshape(-1, n_class)
         targets = targets.reshape(-1)
-        #if(isinstance(self.loss, SimilarityCombinedLoss_BEHM) or isinstance(self.loss, SimilarityCombinedLoss_MSM)):
-        if(isinstance(self.loss, SimilarityCombinedLoss) or isinstance(self.loss, CrossEntropyLoss)): 
-            # Assuming embeddings, targets, and outputs are lists or arrays
-            num_samples = min(len(embeddings), len(embeddings)//(seq_len))
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            # Generate random indices
-            random_indices = random.sample(range(len(embeddings)), num_samples)
-            # Extract the corresponding elements using the random indices
-            embeddings = torch.stack([embeddings[i] for i in random_indices])
-            targets = torch.tensor([targets[i] for i in random_indices], device=device)
-            outputs = torch.stack([outputs[i] for i in random_indices])
 
         if self.n_classes > 1:
             loss = self.loss(embeddings, outputs, targets)
@@ -148,7 +138,6 @@ class SleepModule(pl.LightningModule):
         # get the logged metrics
         if "val_loss" not in self.trainer.logged_metrics:
             self.log("val_loss", float("inf"))
-
         # Logica di training
         inputs, targets = batch
         embeddings, outputs = self.encode(inputs)

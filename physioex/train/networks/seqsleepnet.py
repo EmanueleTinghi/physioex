@@ -129,10 +129,10 @@ class SequenceEncoder(nn.Module):
             module_config["seqnhidden2"] * 2, module_config["n_classes"]
         )
 
-    def forward(self, x):
-        x = self.encode(x)
-        x = self.lin(x)
-        return x
+    #def forward(self, x):
+     #    x = self.encode(x)
+     #   x = self.lin(x)
+      #  return x
 
     def encode(self, x):
         x, _ = self.LSTM(x)

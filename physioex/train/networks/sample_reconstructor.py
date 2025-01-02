@@ -77,17 +77,16 @@ class SampleReconstructor(SleepModule):
             noverlap = nperseg // 2
         if nfft is None:
             nfft = nperseg
+
+        batch_size, signal_len = x.size()   #x shape: [-1, 600]
     
         # Window function
         window = torch.hamming_window(nperseg, periodic=False).to(x.device)
-        #print("X: ", x.shape)
         # Calculate the number of segments
         step = nperseg - noverlap
-        shape = (x.size(0) - noverlap) // step, nperseg
-        #print("Shape: ", shape)
-        strides = x.stride(0) * step, x.stride(0)
-        segments = torch.as_strided(x, size=shape, stride=strides)
-        print("Segments: ", segments.shape)
+        shape = (batch_size, (x.size(1) - noverlap) // step, nperseg)   #shape shape: [-1, 11, 100]
+        strides = (x.stride(0), x.stride(1) * step, x.stride(1))    #strides shape: [600, 50, 1]
+        segments = torch.as_strided(x, size=shape, stride=strides)  #segments shape: [-1, 11, 100]
 
         # Apply window to each segment
         segments = segments * window
@@ -95,9 +94,9 @@ class SampleReconstructor(SleepModule):
         # Compute FFT and power spectral density
         fft_segments = torch.fft.rfft(segments, n=nfft)
         psd = (fft_segments.abs() ** 2) / (fs * window.sum() ** 2)
-    
+
         # Average over segments
-        #psd = psd.mean(dim=0)
+        psd = psd.mean(dim=1)   #psd shape: [-1, 129]
     
         # Frequency axis
         freqs = torch.fft.rfftfreq(nfft, 1 / fs)
@@ -125,31 +124,27 @@ class SampleReconstructor(SleepModule):
         x_std = torch.std(x, dim=-1)
         std_loss = torch.nn.functional.mse_loss(x_std, x_hat_std)'''
 
-        _, x_psd_cuda = self.welch_psd(x, fs=100, nperseg=100, noverlap=50, nfft=256)
-        _, x_hat_psd_cuda = self.welch_psd(x_hat, fs=100, nperseg=100, noverlap=50, nfft=256)
+        '''_, x_psd_cuda = self.welch_psd(x, fs=100, nperseg=100, noverlap=50, nfft=256)
+        _, x_hat_psd_cuda = self.welch_psd(x_hat, fs=100, nperseg=100, noverlap=50, nfft=256)'''
 
-        print("PSD_cuda: ", x_psd_cuda.shape, x_hat_psd_cuda.shape)
+        #print("PSD_cuda: ", x_psd_cuda.shape, x_hat_psd_cuda.shape)
 
         _, x_psd = welch(x.clone().detach().cpu().numpy(), fs=100, nperseg=100, noverlap=50, nfft=256)
         _, x_hat_psd = welch(x_hat.clone().detach().cpu().numpy(), fs=100, nperseg=100, noverlap=50, nfft=256)
 
-        print("PSD: ", x_psd.shape, x_hat_psd.shape)
-
         #print("PSD: ", x_psd.shape, x_hat_psd.shape)
-        psd_loss = torch.nn.functional.mse_loss(torch.tensor(x_psd), torch.tensor(x_hat_psd))
 
-        #print("PSD: ", x_psd.shape, x_hat_psd.shape)
         psd_loss = torch.nn.functional.mse_loss(torch.tensor(x_psd), torch.tensor(x_hat_psd))       
-        psd_loss_cuda = torch.nn.functional.mse_loss(x_psd_cuda, x_hat_psd_cuda)
+        #psd_loss_cuda = torch.nn.functional.mse_loss(x_psd_cuda, x_hat_psd_cuda)
         #print("PSD: ", psd_loss.shape, psd_loss_cuda.shape)
-        psd_diff = psd_loss - psd_loss_cuda
+       # psd_diff = psd_loss - psd_loss_cuda
+        #print("PSD Diff: ", psd_diff)
 
         total_loss = mse_loss + psd_loss#+ entropy_loss + std_loss
 
         # Log individual losses
         self.log(f"{log}_mse_loss", mse_loss, prog_bar=True, on_step=True, on_epoch=True)
         self.log(f"{log}_psd_loss", psd_loss, prog_bar=True, on_step=True, on_epoch=True)
-        self.log(F"{log}_psd_diff", psd_diff, prog_bar=True, on_step=True, on_epoch=True)
         #self.log(f"{log}_entropy_loss", entropy_loss, prog_bar=True, on_step=True, on_epoch=True)
         #self.log(f"{log}_std_loss", std_loss, prog_bar=True, on_step=True, on_epoch=True)
         self.log(f"{log}_total_loss", total_loss, prog_bar=True, on_step=True, on_epoch=True)

@@ -161,7 +161,7 @@ class NN(nn.Module):
         assert 3000 % config["proto_lenght"] == 0, "The prototype lenght must be a divisor of 3000"
 
         self.epoch_encoder = EpochEncoder( 
-            hidden_size = 3000 // config["proto_lenght"], 
+            hidden_size = config["proto_lenght"],    #3000 // config["proto_lenght"], 
             attention_size = 128, 
             N = config["N"], 
             n_prototypes = config["n_prototypes"], 
@@ -293,22 +293,20 @@ class EpochEncoder( nn.Module ):
         
         # we need to extract frequency-related features from the signal
         self.conv1 = nn.Sequential( OrderedDict([
-            ("conv1", nn.Conv1d(1, 32, 5)),
+            ("conv1", nn.Conv1d(1, 32, 4)),
             ("relu1", nn.ReLU()),
-            ("maxpool1", nn.MaxPool1d(5)),
+            ("maxpool1", nn.MaxPool1d(4)),
             ("batchnorm1", nn.BatchNorm1d(32)),
-            ("conv2", nn.Conv1d(32, 64, 5)),
+            ("conv2", nn.Conv1d(32, 64, 4)),
             ("relu2", nn.ReLU()),
-            ("maxpool2", nn.MaxPool1d(5)),
+            ("maxpool2", nn.MaxPool1d(hidden_size // 100)),
             ("batchnorm2", nn.BatchNorm1d(64)),
-            ("conv3", nn.Conv1d(64, 128, 5)),
+            ("conv3", nn.Conv1d(64, 128, 4)),
             ("relu3", nn.ReLU()),
-            ("maxpool3", nn.MaxPool1d(5)),
+            ("maxpool3", nn.MaxPool1d(4)),
             ("batchnorm3", nn.BatchNorm1d(128)),
-            ("conv4", nn.Conv1d(128, 256, 3)),
-            #("relu4", nn.ReLU()),
+            ("conv4", nn.Conv1d(128, 256, 5)),
             ("flatten", nn.Flatten()),
-            #("layer_norm", nn.LayerNorm(256))
         ]))
         
         self.out_size = self.conv1(torch.randn(1, 1,  hidden_size)).shape[1]

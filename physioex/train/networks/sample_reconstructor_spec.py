@@ -3,7 +3,7 @@ import time
 from physioex.train.networks.base import SleepModule
 import torch
 import torch.nn.functional as F
-from physioex.train.networks.prototype_kl import ProtoSleepNet, NN
+from physioex.train.networks.old_prototype_kl import ProtoSleepNet, NN
 
 from scipy.signal import spectrogram
 import numpy as np
@@ -185,6 +185,8 @@ class NN(nn.Module):
     
     def forward(self, x):
         # x = [batch_size, seq_len, n_channels, 3000]
+        print("X", x.shape)
+        #print("X2", x.reshape(-1,3,5,129).shape)
         #start_forward = time.time()
         x = x.reshape(-1, 1, 600)   # [batch_size*seq_len*num_sections, 1, 600]
         

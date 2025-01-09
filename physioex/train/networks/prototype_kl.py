@@ -91,7 +91,6 @@ class ProtoSleepNet(SleepModule):
 
         return self.compute_loss(prototype, clf, targets, loss, residuals, "test", log_metrics=True)       
 
-    
     def compute_loss(
         self,
         prototypes,
@@ -235,26 +234,24 @@ class SequenceEncoder( nn.Module ):
 
 class PrototypeLayer( nn.Module ):
     def __init__( self, 
-        hidden_size : int,  #protoype dimension
-        N : int = 1, # number of prototypes to learn
+        output_size : int,  #protoype dimension
+        n_prototypes : int = 1, # number of prototypes to learn
         commitment_cost : float = 0.25 # beta parameter for the VQ-VAE
         ):
         super(PrototypeLayer, self).__init__()
 
-        self.proto_dim = hidden_size
-        self.proto_num = N
+        self.proto_dim = output_size
+        self.proto_num = n_prototypes
 
         self.prototypes = nn.Embedding(self.proto_num, self.proto_dim)
-        #self.prototypes.weight.data.normal_()
         self.commitment_cost = commitment_cost
 
     def forward( self, x ):
-        # x shape : (batch_size, seq_len, hidden_size)
+        # x shape : batch_size, seq_len*self.N, output_size)
         x_shape = x.shape
 
-        x = x.reshape(-1, self.proto_dim).contiguous()  # shape : (batch_size * seq_len, proto_dim)
+        x = x.reshape(-1, self.proto_dim).contiguous()  # shape : (batch_size * seq_len, output_size)
 
-        #dist = torch.cdist( x, self.prototypes.weight) # shape : (batch_size * seq_len, proto_num)
         # Calculate distances
         dist = (torch.sum(x**2, dim=1, keepdim=True) 
                     + torch.sum(self.prototypes.weight**2, dim=1)
@@ -264,7 +261,7 @@ class PrototypeLayer( nn.Module ):
         prototype_OHE = torch.zeros(proto_indices.shape[0], self.proto_num).to(x.device)
         prototype_OHE.scatter_(1, proto_indices, 1)
 
-        proto = torch.matmul(prototype_OHE, self.prototypes.weight).view(x_shape)   #shape: (batch_size, seq_len, proto_dim)
+        proto = torch.matmul(prototype_OHE, self.prototypes.weight).view(x_shape)   #shape: (batch_size, seq_len, output_size)
         x = x.view(x_shape)
 
         e_latent_loss = F.mse_loss(proto.detach(), x)
@@ -318,11 +315,12 @@ class EpochEncoder( nn.Module ):
     def forward( self, x ):
         # x shape : (batch_size, seq_len, n_chan, n_samp)
         batch_size, seq_len, n_chan, n_samp = x.size()
-
         assert n_samp % self.hidden_size == 0, "Hidden size must be a divisor of the number of samples"
 
         x = x.reshape( batch_size * seq_len, n_chan*(n_samp//self.hidden_size), -1 )
+
         sampled_x = self.sampler( x ) # shape : (batch_size * seq_len, N, hidden_size)
+
         x = sampled_x.reshape( batch_size * seq_len * self.N, 1,  -1 )
         
         x = self.conv1( x ) # shape : (batch_size * seq_len * self.N, out_size)
@@ -356,26 +354,27 @@ class HardAttentionLayer(nn.Module):
         self.K = nn.Linear(hidden_size, attention_size * N, bias = False)
 
     def forward(self, x):
-        batch_size, sequence_length, hidden_size = x.size()
+        # x shape : (batch_size * seq_len, section_num (n_chan*(n_samp//hidden_size)), hidden_size)
+        batch_size, section_num, hidden_size = x.size()
 
         # encode the sequence with positional encoding
         pos_emb = self.pe(x)
 
-        # calculate the query and key
+        # calculate the query and key -> output shape: (batch_size, section_num, attention_size * N)
         Q = self.Q(pos_emb)
         K = self.K(pos_emb)
         
-        Q = Q.reshape( batch_size, sequence_length, self.N, -1 ).transpose(1, 2)
-        K = K.reshape( batch_size, sequence_length, self.N, -1 ).transpose(1, 2)
+        Q = Q.reshape( batch_size, section_num, self.N, -1 ).transpose(1, 2)
+        K = K.reshape( batch_size, section_num, self.N, -1 ).transpose(1, 2)
         
         attention = torch.einsum( "bnsh,bnth -> bnst", Q, K ) / ( hidden_size ** (1/2) )
-        attention = torch.sum(attention, dim=-1) / sequence_length
+        attention = torch.sum(attention, dim=-1) / section_num
 
-        # attention shape : (batch_size * N, sequence_length)
-        logits = attention.reshape( batch_size * self.N, sequence_length )                
+        # attention shape : (batch_size * N, section_num)
+        logits = attention.reshape( batch_size * self.N, section_num )                
         # apply the Gumbel-Softmax trick to select the N most important elements
         alphas = torch.nn.functional.gumbel_softmax(logits, tau=self.temperature, hard=True)
-        alphas = alphas.reshape( batch_size, self.N, sequence_length )
+        alphas = alphas.reshape( batch_size, self.N, section_num )
         
         # select N elements from the sequence x using alphas
         x = torch.einsum( "bns, bsh -> bnh", alphas, x )

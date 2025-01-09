@@ -2,7 +2,7 @@ import math
 from physioex.train.networks.base import SleepModule
 import torch
 import torch.nn.functional as F
-from physioex.train.networks.prototype_kl import ProtoSleepNet, NN
+from physioex.train.networks.prototype_kl import ProtoSleepNet
 from scipy.signal import welch
 
 import torch.nn as nn
@@ -17,6 +17,9 @@ class SampleReconstructor(SleepModule):
         self.bin_edges = torch.linspace(0.0, 1.0, self.num_bins + 1, device="cuda")
         self.bin_centers = (self.bin_edges[:-1] + self.bin_edges[1:]) / 2
         self.bandwidth = (self.bin_edges[1] - self.bin_edges[0])
+        self.section_length = module_config["proto_lenght"]
+        self.num_sections = 3000 // self.section_length
+        self.N = module_config["N"]
 
     def log_reconstructions(self, x, x_hat, log : str):        
         # x shape : (N, hidden_size)
@@ -30,8 +33,8 @@ class SampleReconstructor(SleepModule):
         fig, axes = plt.subplots(4, 5, figsize=(25, 20))
         axes = axes.flatten()
         for i, ax in enumerate(axes):
-            sns.lineplot(x = range(600), y = x[i].flatten(), ax=ax, color="blue", label="Original")
-            sns.lineplot(x = range(600), y = x_hat[i].flatten(), ax=ax, color="red", label="Reconstructed")
+            sns.lineplot(x = range(self.section_length), y = x[i].flatten(), ax=ax, color="blue", label="Original")
+            sns.lineplot(x = range(self.section_length), y = x_hat[i].flatten(), ax=ax, color="red", label="Reconstructed")
 
         handles, labels = ax.get_legend_handles_labels()
         fig.legend(handles, labels, loc='upper right')
@@ -112,8 +115,8 @@ class SampleReconstructor(SleepModule):
         
         if self.step % 250 == 0:
             self.log_reconstructions(x, x_hat, log)
-
-        x = x.reshape(-1, 600)
+        
+        x = x.reshape(-1, self.section_length)
         mse_loss = torch.nn.functional.mse_loss(x, x_hat)
 
         '''x_hat_entropy = self.calculate_entropy(x_hat)
@@ -129,22 +132,22 @@ class SampleReconstructor(SleepModule):
 
         #print("PSD_cuda: ", x_psd_cuda.shape, x_hat_psd_cuda.shape)
 
-        _, x_psd = welch(x.clone().detach().cpu().numpy(), fs=100, nperseg=100, noverlap=50, nfft=256)
-        _, x_hat_psd = welch(x_hat.clone().detach().cpu().numpy(), fs=100, nperseg=100, noverlap=50, nfft=256)
+        #_, x_psd = welch(x.clone().detach().cpu().numpy(), fs=100, nperseg=100, noverlap=50, nfft=256)
+        #_, x_hat_psd = welch(x_hat.clone().detach().cpu().numpy(), fs=100, nperseg=100, noverlap=50, nfft=256)
 
         #print("PSD: ", x_psd.shape, x_hat_psd.shape)
 
-        psd_loss = torch.nn.functional.mse_loss(torch.tensor(x_psd), torch.tensor(x_hat_psd))       
+        #psd_loss = torch.nn.functional.mse_loss(torch.tensor(x_psd), torch.tensor(x_hat_psd))       
         #psd_loss_cuda = torch.nn.functional.mse_loss(x_psd_cuda, x_hat_psd_cuda)
         #print("PSD: ", psd_loss.shape, psd_loss_cuda.shape)
        # psd_diff = psd_loss - psd_loss_cuda
         #print("PSD Diff: ", psd_diff)
 
-        total_loss = mse_loss + psd_loss#+ entropy_loss + std_loss
+        total_loss = mse_loss #+ psd_loss#+ entropy_loss + std_loss
 
         # Log individual losses
         self.log(f"{log}_mse_loss", mse_loss, prog_bar=True, on_step=True, on_epoch=True)
-        self.log(f"{log}_psd_loss", psd_loss, prog_bar=True, on_step=True, on_epoch=True)
+        #self.log(f"{log}_psd_loss", psd_loss, prog_bar=True, on_step=True, on_epoch=True)
         #self.log(f"{log}_entropy_loss", entropy_loss, prog_bar=True, on_step=True, on_epoch=True)
         #self.log(f"{log}_std_loss", std_loss, prog_bar=True, on_step=True, on_epoch=True)
         self.log(f"{log}_total_loss", total_loss, prog_bar=True, on_step=True, on_epoch=True)
@@ -174,7 +177,10 @@ class PositionalEncoding(nn.Module):
 class NN(nn.Module):
     def __init__(self, config: dict):
         super(NN, self).__init__()
-        #print("Proto CK: ", config["proto_ck"])
+        self.N = config["N"]
+        self.section_length = config["proto_lenght"]
+        self.num_sections = 3000 // self.section_length
+
         # Load the pre-trained ProtoSleepNet model
         self.proto_model = ProtoSleepNet.load_from_checkpoint(config["proto_ck"], 
                                                               module_config=config)
@@ -187,9 +193,9 @@ class NN(nn.Module):
         
         # Define the reconstruction layers using transposed convolutions
         self.reconstruction_layer = nn.Sequential(
-            nn.Linear(256, 100*6),
+            nn.Linear(256, 100*(self.section_length//100)),
             nn.ReLU(),
-            nn.LayerNorm(100*6),
+            nn.LayerNorm(100*(self.section_length//100)),
             nn.Dropout(0.25),
         )
 
@@ -223,22 +229,22 @@ class NN(nn.Module):
     def deconvolve(self, z):        
         # Reconstruct the original sample from the combined tensor
         z_hat = self.reconstruction_layer(z)
-        z_hat = z_hat.reshape(-1, 6, 100)
+        z_hat = z_hat.reshape(-1, self.section_length//100, 100)
         z_hat = self.pe(z_hat)
         z_hat = self.transformer(z_hat)
-        z_hat = z_hat.reshape(-1, 1, 600)
+        z_hat = z_hat.reshape(-1, 1, self.section_length)
         
-        return (z_hat + self.residual_layer(z_hat)).reshape(-1, 600)
+        return (z_hat + self.residual_layer(z_hat)).reshape(-1, self.section_length)
     
     def forward(self, x):
         # x = [batch_size, seq_len, n_channels, 3000]
         
-        x = x.reshape(-1, 1, 600)   # [batch_size*seq_len*num_sections, 1, 600]
+        x = x.reshape(-1, 1, self.section_length)   # [batch_size*seq_len*num_sections*n_channels, 1, section_length] (num_sections = 3000/section_length)
 
         # Get the prototypes from the frozen ProtoSleepNet model
         with torch.no_grad():
-            p = self.proto_model.nn.epoch_encoder.conv1(x)  # Shape: [batch_size*seq_len*num_sections, 256]
-            proto, res, _ = self.proto_model.nn.epoch_encoder.prototype(p)  # Shape: [batch_size*seq_len*num_sections, 256]
+            p = self.proto_model.nn.epoch_encoder.conv1(x)  # Shape: [batch_size*seq_len*num_sections*n_channels, 256]
+            proto, res, _ = self.proto_model.nn.epoch_encoder.prototype(p)  # Shape: [batch_size*seq_len*num_sections*n_channels, 256]
             
         z = proto + res
         x_hat = self.deconvolve(z)

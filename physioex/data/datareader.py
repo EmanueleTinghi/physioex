@@ -49,7 +49,6 @@ class MemmapReader(Reader):
         scaling = np.load(os.path.join(self.data_path, "scaling.npz"))
 
         self.input_shape = list(scaling["mean"].shape)
-
         self.mean = torch.tensor(scaling["mean"][channels_index]).float()
         self.std = torch.tensor(scaling["std"][channels_index]).float()
 

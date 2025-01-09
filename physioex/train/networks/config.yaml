@@ -78,7 +78,7 @@ protosleepnet_p200n3p25:
     n_prototypes : 25
 
 protosleepnet_p200n4p25:
-  model: physioex.train.networks.prototype_kl_gru:ProtoSleepNet
+  model: physioex.train.networks.prototype_kl:ProtoSleepNet
   preprocessing : raw
   target_transform: null
   model_kwargs:

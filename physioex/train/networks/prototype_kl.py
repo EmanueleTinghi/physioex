@@ -298,12 +298,11 @@ class EpochEncoder( nn.Module ):
             ("relu2", nn.ReLU()),
             ("maxpool2", nn.MaxPool1d(hidden_size // 100)),
             ("batchnorm2", nn.BatchNorm1d(64)),
-            ("conv3", nn.Conv1d(64, 128, 4)),
+            ("conv3", nn.Conv1d(64, 64, 4)),
             ("relu3", nn.ReLU()),
             ("maxpool3", nn.MaxPool1d(4)),
-            ("batchnorm3", nn.BatchNorm1d(128)),
-            ("conv4", nn.Conv1d(128, 256, 5)),
             ("flatten", nn.Flatten()),
+            ("fc", nn.Linear(64*5, 64))
         ]))
         
         self.out_size = self.conv1(torch.randn(1, 1,  hidden_size)).shape[1]

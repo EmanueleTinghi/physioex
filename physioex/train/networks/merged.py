@@ -253,9 +253,9 @@ class SectionReconstructor(nn.Module):
         self.section_length = section_length
         self.num_sections = num_sections
         self.proto_dim = proto_dim
-        self.num_components = 100
+        self.num_components = 200
 
-        self.amplitude_layer = nn.Sequential(
+        self.reconstruction_linear = nn.Sequential(
             nn.Linear(self.proto_dim, self.proto_dim*4),
             nn.ReLU(),
             nn.LayerNorm(self.proto_dim*4),
@@ -263,54 +263,12 @@ class SectionReconstructor(nn.Module):
             nn.Linear(self.proto_dim*4, self.proto_dim*2),
             nn.ReLU(),
             nn.LayerNorm(self.proto_dim*2),
-            nn.Dropout(0.5),
-            nn.Linear(self.proto_dim*2, self.num_components),
-            nn.Dropout(0.4)
-        )
-        for layer in self.amplitude_layer:
-            if hasattr(layer, "bias") and layer.bias is not None:
-                nn.init.constant_(layer.bias, 0.0)
-                layer.bias.requires_grad = False
-
-        self.phase_layer = nn.Sequential(
-            nn.Linear(self.proto_dim, self.proto_dim*4),
-            nn.ReLU(),
-            nn.LayerNorm(self.proto_dim*4),
             nn.Dropout(0.4),
-            nn.Linear(self.proto_dim*4, self.proto_dim*2),
-            nn.ReLU(),
-            nn.LayerNorm(self.proto_dim*2),
-            nn.Dropout(0.5),
             nn.Linear(self.proto_dim*2, self.num_components),
-            nn.Dropout(0.4)
         )
-        for layer in self.phase_layer:
-            if hasattr(layer, "bias") and layer.bias is not None:
-                nn.init.constant_(layer.bias, 0.0)
-                layer.bias.requires_grad = False
-
-        self.freqs = torch.arange(0.5, self.num_components//2 + 0.5, 0.5, device="cuda")
-        self.t = torch.linspace(0, self.section_length, steps = self.section_length, device = "cuda").unsqueeze(0).unsqueeze(0)
-
-    def sinusoid_extractor(self, z):
-        # z shape: [batch_size*seq_len*num_sections*n_channels, proto_dim]
-        amps = self.amplitude_layer(z)
-        phases = self.phase_layer(z)
-        return amps, phases
-
-    def signal_reconstruction(self, amps, phases):
-        sinusoids = amps.unsqueeze(-1) * torch.sin(2 * torch.pi * self.freqs.unsqueeze(-1) * self.t + phases.unsqueeze(-1))
-        signal = sinusoids.sum(dim=1)  # [-1, section_length]
-        return signal
-
-    def signal_builder(self, z):
-        # z shape: [batch_size*seq_len*num_sections*n_channels, proto_dim]
-        amps, phases = self.sinusoid_extractor(z)
-        z_hat = self.signal_reconstruction(amps, phases)
-        return z_hat
      
     def forward(self, x):
-        x_hat = self.signal_builder(x.reshape(-1, self.proto_dim))
+        x_hat = self.reconstruction_linear(x)
         return x_hat
 
 class SequenceEncoder( nn.Module ):

@@ -267,6 +267,18 @@ protosleepnet_reconstructor_mass:
 
     learning_rate : .0002
 
+protosleepnet_p200n4p50_merged:
+  model: physioex.train.networks.merged:ProtoSleepNet
+  preprocessing : raw
+  target_transform: null
+  model_kwargs:
+    proto_ck: /home/coder/physioex/models/old_models/mass/enc_p200_cd50_n4_pd128_1ch/fold=-1-epoch=2-step=7760-val_loss=inf.ckpt
+    proto_lenght : 200
+    N : 4
+    n_prototypes : 50
+    loss: physioex.train.networks.utils.loss:CrossEntropyLoss
+
+    learning_rate : .0002
 
 default:
   model : null

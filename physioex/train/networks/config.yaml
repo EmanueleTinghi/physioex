@@ -258,7 +258,7 @@ protosleepnet_reconstructor_mass:
   preprocessing : raw
   target_transform: null
   model_kwargs:
-    proto_ck: /home/tinghi/models/mass_diff_seqlen/1ch/p200/n4/fold=-1-epoch=8-step=26630-val_loss=inf.ckpt
+    proto_ck: /home/coder/physioex/models/mass_diff_seqle/1ch/p200/n4/fold=-1-epoch=8-step=26630-val_loss=inf.ckpt
     proto_model: "protosleepnet_p200n4p25"
     proto_lenght : 200
     N : 4

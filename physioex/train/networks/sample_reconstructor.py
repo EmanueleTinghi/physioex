@@ -189,6 +189,8 @@ class NN(nn.Module):
         for param in self.proto_model.parameters():
             param.requires_grad = False
 
+        self.t = torch.linspace(0, self.section_length, steps = self.section_length, device = "cuda").unsqueeze(0).unsqueeze(0)
+        '''
         self.pe = PositionalEncoding(100)
         
         # Define the reconstruction layers using transposed convolutions
@@ -198,7 +200,7 @@ class NN(nn.Module):
             nn.LayerNorm(100*(self.section_length//100)),
             nn.Dropout(0.25),
         )
-
+        '''
         self.residual_layer = nn.Sequential(
             nn.Conv1d( 1, 8, 5, 1, 2),
             nn.ReLU(),
@@ -209,7 +211,7 @@ class NN(nn.Module):
             nn.Conv1d( 16, 1, 5, 1, 2),
             nn.ReLU(),
         )
-        
+        '''
         self.transformer_layer = nn.TransformerEncoderLayer(d_model=100,
                                                             nhead=4, 
                                                             dim_feedforward=256,
@@ -225,17 +227,70 @@ class NN(nn.Module):
         nn.init.constant_(self.residual_layer[3].bias, 0.0)
         nn.init.constant_(self.residual_layer[6].weight, 0.0)
         nn.init.constant_(self.residual_layer[6].bias, 0.0)
+        '''
+        self.n_comp = 6
+        self.convBlock = nn.Sequential(
+            # Primo livello di convoluzioni
+            nn.Conv1d(256, 128, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm1d(128),
+            nn.ReLU(),
+            nn.Dropout(p=0.2),
 
+            nn.Conv1d(128, 64, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm1d(64),
+            nn.ReLU(),
+            nn.Dropout(p=0.3),
+
+            nn.Conv1d(64, 64, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm1d(64),
+            nn.ReLU(),
+        )
+
+        self.fc = nn.Sequential(
+            nn.Linear(64, self.n_comp * 3),
+            nn.ReLU(),
+            #nn.LayerNorm(self.n_comp * 3),
+            nn.Dropout(0.25),
+        )
+    '''
     def deconvolve(self, z):        
+        # [-1, proto_length]
         # Reconstruct the original sample from the combined tensor
         z_hat = self.reconstruction_layer(z)
         z_hat = z_hat.reshape(-1, self.section_length//100, 100)
         z_hat = self.pe(z_hat)
         z_hat = self.transformer(z_hat)
-        z_hat = z_hat.reshape(-1, 1, self.section_length)
-        
-        return (z_hat + self.residual_layer(z_hat)).reshape(-1, self.section_length)
+        z_hat = z_hat.reshape(-1, 1, self.section_length) # [-1, 1, section_length]
+        z_hat_residual = self.residual_layer(z_hat) # [-1, 1, section_length]
+
+        return (z_hat + z_hat_residual).reshape(-1, self.section_length)
+    '''
+    def sinusoid_extractor(self, z):
+        z_hat = z.unsqueeze(1).transpose(2, 1)
+        z_hat = self.convBlock(z_hat)
+        z_hat = z_hat.view(z_hat.size(0), -1)
+        z_hat = self.fc(z_hat)
+        return z_hat
     
+    def print_memory_usage(self):
+        print(f"Allocated: {torch.cuda.memory_allocated() / 1024 ** 3:.2f} GB")
+        print(f"Reserved: {torch.cuda.memory_reserved() / 1024 ** 3:.2f} GB")
+
+    def signal_reconstruction(self, z):
+        freqs = z[:, :, 0]
+        amps = z[:, :, 1]
+        phases = z[:, :, 2]
+
+        sinusoids = amps.unsqueeze(-1) * torch.sin(2 * torch.pi * freqs.unsqueeze(-1) * self.t + phases.unsqueeze(-1))
+        signal = sinusoids.sum(dim=1, keepdim=True)  # [-1, 1, section_length]
+        signal = (signal + self.residual_layer(signal)).reshape(-1, self.section_length)
+        return signal
+
+    def signal_builder(self, z):
+        z_hat = self.sinusoid_extractor(z).reshape(-1, self.n_comp, 3)  #[-1, n_comp*3]
+        z_hat = self.signal_reconstruction(z_hat)
+        return z_hat
+
     def forward(self, x):
         # x = [batch_size, seq_len, n_channels, 3000]
         
@@ -247,6 +302,6 @@ class NN(nn.Module):
             proto, res, _ = self.proto_model.nn.epoch_encoder.prototype(p)  # Shape: [batch_size*seq_len*num_sections*n_channels, 256]
             
         z = proto + res
-        x_hat = self.deconvolve(z)
+        x_hat = self.signal_builder(z)
 
         return x_hat, x

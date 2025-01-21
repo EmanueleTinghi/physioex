@@ -282,7 +282,6 @@ class SectionReconstructor(nn.Module):
             nn.LayerNorm(self.proto_dim*2),
             nn.Dropout(0.5),
             nn.Linear(self.proto_dim*2, self.num_components),
-            nn.Dropout(0.4)
         )
         for layer in self.phase_layer:
             if hasattr(layer, "bias") and layer.bias is not None:

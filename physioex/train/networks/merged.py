@@ -53,7 +53,7 @@ class ProtoSleepNet(SleepModule):
         self.logger.experiment.add_figure(f"{log}-proto-variance-history", plt.gcf(), self.step)
         plt.close()
 
-    def log_reconstructions(self, x, x_hat, target, output, log : str):        
+    def log_reconstructions(self, x, x_hat, target, output, log):        
         # x shape : (N, hidden_size)
         # convert the model parameters to numpy
 
@@ -61,23 +61,34 @@ class ProtoSleepNet(SleepModule):
         x_hat = x_hat.clone().detach().cpu().numpy()
         target = target.clone().detach().cpu().numpy()
         output = output.clone().detach().cpu().numpy()
-
-        output = np.argmax(output)
-        print(output)
-        print(target)
         
+        target = np.expand_dims(target, axis=-1)
+        target = np.repeat(target, 4, axis=-1)
+        target = target.flatten()
+        
+        output = np.argmax(output, axis=-1)
+        output = np.expand_dims(output, axis=-1)
+        output = np.repeat(output, 4, axis=-1)
+        output = output.flatten()
+    
         # y label equal to prototype index, x label equal to the feature index
         # display the cbar with diverging colors
         fig, axes = plt.subplots(4, 5, figsize=(25, 20))
         axes = axes.flatten()
         for i, ax in enumerate(axes):
-            sns.lineplot(x = range(self.section_length), y = x[i].flatten(), ax=ax, color="blue", label="Original")
-            sns.lineplot(x = range(self.section_length), y = x_hat[i].flatten(), ax=ax, color="red", label="Reconstructed")
+            sns.lineplot(x=range(self.section_length), y=x[i].flatten(), ax=ax, color="blue", label="Original")
+            sns.lineplot(x=range(self.section_length), y=x_hat[i].flatten(), ax=ax, color="red", label="Reconstructed")
+            
+            # Add title for each subplot
+            ax.set_title(f"Target: {target[i]}, Output: {output[i]}")
+            
+        # Create a single global legend
+        handles, labels = axes[0].get_legend_handles_labels()
+        fig.legend(handles, labels, loc='upper right', title="Legend")
+        
+        self.logger.experiment.add_figure(f"{log}-reconstruction", fig, self.step)
+        plt.close()
 
-        handles, labels = ax.get_legend_handles_labels()
-        fig.legend(handles, labels + [f"Predicted Class: {output}", f"Real Class: {target}"], loc='upper right')
-        self.logger.experiment.add_figure(f"{log}-reconstruction", fig, self.step )
-        plt.close() 
 
     def log_prototypes(self, log : str):        
         # prototypes shape : (N, hidden_size)
@@ -403,14 +414,17 @@ class EpochEncoder( nn.Module ):
 class EncodingLayer(nn.Module):
     def __init__(self):
         super(EncodingLayer, self).__init__()
-        self.soft_attention = AttentionLayer(hidden_size=32, attention_size=128)
+        self.soft_attention = AttentionLayer(hidden_size=64, attention_size=128)
         self.learn_filterbank = LearnableFilterbank(F=129, in_chan=1, nfilt=32)
         self.conv = nn.Conv1d(1, 129, 100, 50)
+        self.bi_lstm = nn.LSTM(32, 32, 1, batch_first=True, bidirectional=True)
 
     def forward(self, x):
-        x = self.conv(x).transpose(1, 2)
-        x = self.learn_filterbank(x)
-        x = self.soft_attention(x)
+        # x shape: (batch_size, 1, section_size)
+        x = self.conv(x).transpose(1, 2)    # shape: (batch_size, 3, 129)
+        x = self.learn_filterbank(x)       # shape: (batch_size, 3, 32)
+        x, _ = self.bi_lstm(x)            # shape: (batch_size, 3, 64)
+        x = self.soft_attention(x)      # shape: (batch_size, 64)
         return x
 
 

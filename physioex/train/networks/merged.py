@@ -5,9 +5,11 @@ import torch.nn.functional as F
 import torch.distributions as dist
 
 import math
+import numpy as np
 
 from collections import OrderedDict
 
+from physioex.train.networks.seqsleepnet import LearnableFilterbank, AttentionLayer
 from physioex.train.networks.base import SleepModule
 
 # from 30-seconds of signal we need to extract the 5 second subsequence
@@ -51,12 +53,18 @@ class ProtoSleepNet(SleepModule):
         self.logger.experiment.add_figure(f"{log}-proto-variance-history", plt.gcf(), self.step)
         plt.close()
 
-    def log_reconstructions(self, x, x_hat, log : str):        
+    def log_reconstructions(self, x, x_hat, target, output, log : str):        
         # x shape : (N, hidden_size)
         # convert the model parameters to numpy
 
         x = x.clone().detach().cpu().numpy()
         x_hat = x_hat.clone().detach().cpu().numpy()
+        target = target.clone().detach().cpu().numpy()
+        output = output.clone().detach().cpu().numpy()
+
+        output = np.argmax(output)
+        print(output)
+        print(target)
         
         # y label equal to prototype index, x label equal to the feature index
         # display the cbar with diverging colors
@@ -67,7 +75,7 @@ class ProtoSleepNet(SleepModule):
             sns.lineplot(x = range(self.section_length), y = x_hat[i].flatten(), ax=ax, color="red", label="Reconstructed")
 
         handles, labels = ax.get_legend_handles_labels()
-        fig.legend(handles, labels, loc='upper right')
+        fig.legend(handles, labels + [f"Predicted Class: {output}", f"Real Class: {target}"], loc='upper right')
         self.logger.experiment.add_figure(f"{log}-reconstruction", fig, self.step )
         plt.close() 
 
@@ -131,7 +139,7 @@ class ProtoSleepNet(SleepModule):
         if self.step % 250 == 0:
             #self.log_prototypes(log)
             #self.log_prototypes_variance(log)
-            self.log_reconstructions(original_section, reconstructed_section, log)
+            self.log_reconstructions(original_section, reconstructed_section, targets, outputs, log)
         
         batch_size, seq_len, n_class = outputs.size()
         #print("prototo shape", prototypes.size())
@@ -362,26 +370,9 @@ class EpochEncoder( nn.Module ):
         self.N = N
         
         # we need to extract frequency-related features from the signal
-        self.conv1 = nn.Sequential( OrderedDict([
-            ("conv1", nn.Conv1d(1, 32, 3, padding=1)),
-            ("relu1", nn.ReLU()),
-            ("maxpool1", nn.MaxPool1d(4)),
-            ("batchnorm1", nn.BatchNorm1d(32)),
-            ("conv2", nn.Conv1d(32, 64, 3, padding=1)),
-            ("relu2", nn.ReLU()),
-            ("maxpool2", nn.MaxPool1d(hidden_size // 100)),
-            ("batchnorm2", nn.BatchNorm1d(64)),
-            ("conv3", nn.Conv1d(64, 128, 3, padding=1)),
-            ("relu3", nn.ReLU()),
-            ("maxpool3", nn.MaxPool1d(4)),
-            ("batchnorm3", nn.BatchNorm1d(128)),
-            ("flatten", nn.Flatten()),
-            ("fc", nn.Linear(128*6, 256)),
-            ("dropout", nn.Dropout(0.3)),
-            ("fc2", nn.Linear(256, 128))
-        ]))
+        self.encoder = EncodingLayer()
         
-        self.out_size = self.conv1(torch.randn(1, 1,  hidden_size)).shape[1]
+        self.out_size = self.encoder(torch.randn(1, 1,  hidden_size)).shape[1]
         
         self.sampler = HardAttentionLayer(hidden_size, attention_size, N, temperature)
         
@@ -398,7 +389,7 @@ class EpochEncoder( nn.Module ):
 
         x = sampled_x.reshape( batch_size * seq_len * self.N, 1,  -1 )
         
-        x = self.conv1( x ) # shape : (batch_size * seq_len * self.N, out_size)
+        x = self.encoder( x ) # shape : (batch_size * seq_len * self.N, out_size)
 
         x = x.reshape( batch_size, seq_len*self.N, self.out_size )
         
@@ -408,6 +399,20 @@ class EpochEncoder( nn.Module ):
         residual = residual.reshape( batch_size, seq_len, self.N, self.out_size )
         
         return proto, residual, loss, x_embedding, sampled_x
+
+class EncodingLayer(nn.Module):
+    def __init__(self):
+        super(EncodingLayer, self).__init__()
+        self.soft_attention = AttentionLayer(hidden_size=32, attention_size=128)
+        self.learn_filterbank = LearnableFilterbank(F=129, in_chan=1, nfilt=32)
+        self.conv = nn.Conv1d(1, 129, 100, 50)
+
+    def forward(self, x):
+        x = self.conv(x).transpose(1, 2)
+        x = self.learn_filterbank(x)
+        x = self.soft_attention(x)
+        return x
+
 
 class HardAttentionLayer(nn.Module):
     def __init__(self, 

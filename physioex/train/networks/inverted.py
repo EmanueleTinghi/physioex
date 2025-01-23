@@ -205,7 +205,7 @@ class ProtoSleepNet(SleepModule):
         #self.log(f"{log}_proto_gauss_loss", proto_gauss_loss, prog_bar=False, on_epoch=True, on_step=True)
         #self.log(f"{log}_rec_loss", reconstruction_loss, prog_bar=False, on_epoch=True, on_step=True)
         #self.log(f"{log}_rec_std_loss", std_loss, prog_bar=False, on_epoch=True, on_step=True)
-        self.log(f"{log}_total_loss", total_loss, prog_bar=True, on_epoch=True, on_step=True)
+        self.log(f"{log}_loss", total_loss, prog_bar=True, on_epoch=True, on_step=True)
         self.log(f"{log}_acc", self.wacc(outputs, targets), prog_bar=True, on_epoch=True, on_step=True)
         self.log(f"{log}_f1", self.wf1(outputs, targets), prog_bar=False, on_epoch=True, on_step=True)
 
@@ -403,7 +403,7 @@ class EpochEncoder( nn.Module ):
         
         self.out_size = self.encoder(torch.randn(1, 1,  hidden_size)).shape[1]
         
-        self.sampler = HardAttentionLayer(hidden_size, attention_size, N, temperature)
+        self.sampler = HardAttentionLayer(self.out_size, attention_size, N, temperature)
         
         self.prototype = PrototypeLayer( self.out_size, n_prototypes )
         
@@ -412,16 +412,15 @@ class EpochEncoder( nn.Module ):
         batch_size, seq_len, n_chan, n_samp = x.size()
         assert n_samp % self.hidden_size == 0, "Hidden size must be a divisor of the number of samples"
 
-        x = x.reshape( batch_size * seq_len, n_chan*(n_samp//self.hidden_size), -1 )
+        x = x.reshape( batch_size * seq_len * (n_chan*(n_samp//self.hidden_size)), 1, -1 )
 
-        sampled_x = self.sampler( x ) # shape : (batch_size * seq_len, N, hidden_size)
-
-        x = sampled_x.reshape( batch_size * seq_len * self.N, 1,  -1 )
+        x = self.encoder( x ) # shape : (batch_size * seq_len *  n_chan*(n_samp//self.hidden_size), out_size)
+        x = x.reshape( batch_size*seq_len, n_chan*(n_samp//self.hidden_size), self.out_size )
         
-        x = self.encoder( x ) # shape : (batch_size * seq_len * self.N, out_size)
+        sampled_x = self.sampler( x ) # shape : (batch_size * seq_len, N, out_size)
 
         #x = x.reshape( batch_size, seq_len*self.N, self.out_size )
-        x = x.reshape( batch_size, seq_len, self.N, self.out_size )
+        x = sampled_x.reshape( batch_size, seq_len, self.N, self.out_size )
         
         #proto, residual, loss, x_embedding = self.prototype( x )
         

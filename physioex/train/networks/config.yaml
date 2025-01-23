@@ -7,6 +7,8 @@ seqsleepnet:
   model: physioex.train.networks.seqsleepnet:SeqSleepNet
   preprocessing : xsleepnet
   target_transform: null
+  model_kwargs:
+    learning_rate : .00001
 
 tinysleepnet:
   model: physioex.train.networks.tinysleepnet:TinySleepNet
@@ -272,13 +274,48 @@ protosleepnet_p200n4p50_merged:
   preprocessing : raw
   target_transform: null
   model_kwargs:
-    proto_ck: /home/coder/physioex/models/old_models/mass/enc_p200_cd50_n4_pd128_1ch/fold=-1-epoch=2-step=7760-val_loss=inf.ckpt
     proto_lenght : 200
     N : 4
     n_prototypes : 50
     loss: physioex.train.networks.utils.loss:CrossEntropyLoss
 
-    learning_rate : .0002
+    learning_rate : .0001
+
+protosleepnet_p300n4p50_merged:
+  model: physioex.train.networks.merged:ProtoSleepNet
+  preprocessing : raw
+  target_transform: null
+  model_kwargs:
+    proto_lenght : 300
+    N : 4
+    n_prototypes : 50
+    loss: physioex.train.networks.utils.loss:CrossEntropyLoss
+
+    learning_rate : .0001
+
+protosleepnet_p300n4p50_inverted:
+  model: physioex.train.networks.inverted:ProtoSleepNet
+  preprocessing : raw
+  target_transform: null
+  model_kwargs:
+    proto_lenght : 300
+    N : 4
+    n_prototypes : 50
+    loss: physioex.train.networks.utils.loss:CrossEntropyLoss
+
+    learning_rate : .0001
+
+protosleepnet_p300n4p50_spectrogram:
+  model: physioex.train.networks.spectrogram:ProtoSleepNet
+  preprocessing : xsleepnet
+  target_transform: null
+  model_kwargs:
+    proto_lenght : 300
+    N : 4
+    n_prototypes : 50
+    loss: physioex.train.networks.utils.loss:CrossEntropyLoss
+
+    learning_rate : .0001
 
 default:
   model : null

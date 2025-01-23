@@ -34,7 +34,7 @@ def train(
     mode: str = "max",
 ) -> str:
 
-    seed_everything(42, workers=True)
+    seed_everything(123, workers=True)
     set_float32_matmul_precision("medium")
 
     datamodule_kwargs["batch_size"] = batch_size

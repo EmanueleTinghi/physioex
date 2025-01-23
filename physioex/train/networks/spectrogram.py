@@ -205,7 +205,7 @@ class ProtoSleepNet(SleepModule):
         #self.log(f"{log}_proto_gauss_loss", proto_gauss_loss, prog_bar=False, on_epoch=True, on_step=True)
         #self.log(f"{log}_rec_loss", reconstruction_loss, prog_bar=False, on_epoch=True, on_step=True)
         #self.log(f"{log}_rec_std_loss", std_loss, prog_bar=False, on_epoch=True, on_step=True)
-        self.log(f"{log}_total_loss", total_loss, prog_bar=True, on_epoch=True, on_step=True)
+        self.log(f"{log}_loss", total_loss, prog_bar=True, on_epoch=True, on_step=True)
         self.log(f"{log}_acc", self.wacc(outputs, targets), prog_bar=True, on_epoch=True, on_step=True)
         self.log(f"{log}_f1", self.wf1(outputs, targets), prog_bar=False, on_epoch=True, on_step=True)
 
@@ -249,11 +249,20 @@ class NN(nn.Module):
         self.section_length = config["proto_lenght"]
     
     def encode( self, x ):
-        # x shape : (batch_size, seq_len, n_chan, n_samp)
-        batch_size, seq_len, _, _ = x.size()
+        # x shape : (batch_size, seq_len, n_chan, n_tstep, n_fbins)
+        batch_size, seq_len, n_chan, n_tsteps, n_fbins = x.size()
+
+        # Extract sections of length 2
+        sections = x.unfold(dimension=3, size=2, step=2)  # shape: (batch_size, seq_len, n_chan, 14, 2, n_fbins)
         
+        # Copy the 29th section to the 30th place
+        last_section = x[:, :, :, 28:29, :].unsqueeze(3)  # shape: (batch_size, seq_len, n_chan, 1, 1, n_fbins)
+        last_section = last_section.expand(-1, -1, -1, 1, 2, -1)  # shape: (batch_size, seq_len, n_chan, 1, 2, n_fbins)
+        sections = torch.cat((sections, last_section), dim=3)  # shape: (batch_size, seq_len, n_chan, 15, 2, n_fbins)
+        sections.reshape(-1, 2, n_fbins)
+   
         #proto, residual, loss, x_embedding, sampled_x = self.epoch_encoder( x )    # proto shape : (batch_size, seq_len, N, hidden_size)
-        enc = self.epoch_encoder(x)
+        enc = self.epoch_encoder(sections)
 
         #reconstructed_section = self.section_reconstructor(x_embedding)
         
@@ -403,7 +412,7 @@ class EpochEncoder( nn.Module ):
         
         self.out_size = self.encoder(torch.randn(1, 1,  hidden_size)).shape[1]
         
-        self.sampler = HardAttentionLayer(hidden_size, attention_size, N, temperature)
+        self.sampler = HardAttentionLayer(self.out_size, attention_size, N, temperature)
         
         self.prototype = PrototypeLayer( self.out_size, n_prototypes )
         
@@ -412,16 +421,15 @@ class EpochEncoder( nn.Module ):
         batch_size, seq_len, n_chan, n_samp = x.size()
         assert n_samp % self.hidden_size == 0, "Hidden size must be a divisor of the number of samples"
 
-        x = x.reshape( batch_size * seq_len, n_chan*(n_samp//self.hidden_size), -1 )
+        x = x.reshape( batch_size * seq_len * (n_chan*(n_samp//self.hidden_size)), 1, -1 )
 
-        sampled_x = self.sampler( x ) # shape : (batch_size * seq_len, N, hidden_size)
-
-        x = sampled_x.reshape( batch_size * seq_len * self.N, 1,  -1 )
+        x = self.encoder( x ) # shape : (batch_size * seq_len *  n_chan*(n_samp//self.hidden_size), out_size)
+        x = x.reshape( batch_size*seq_len, n_chan*(n_samp//self.hidden_size), self.out_size )
         
-        x = self.encoder( x ) # shape : (batch_size * seq_len * self.N, out_size)
+        sampled_x = self.sampler( x ) # shape : (batch_size * seq_len, N, out_size)
 
         #x = x.reshape( batch_size, seq_len*self.N, self.out_size )
-        x = x.reshape( batch_size, seq_len, self.N, self.out_size )
+        x = sampled_x.reshape( batch_size, seq_len, self.N, self.out_size )
         
         #proto, residual, loss, x_embedding = self.prototype( x )
         
@@ -435,18 +443,18 @@ class EncodingLayer(nn.Module):
         super(EncodingLayer, self).__init__()
         self.soft_attention = AttentionLayer(hidden_size=64, attention_size=128)
         self.learn_filterbank = LearnableFilterbank(F=129, in_chan=1, nfilt=32)
-        self.norm = nn.BatchNorm1d(3)
+        self.norm = nn.BatchNorm1d(2)
         self.conv = nn.Conv1d(1, 129, 200, 50)
         self.dl = nn.Linear(129, 64)
         self.bi_lstm = nn.LSTM(32, 32, 1, batch_first=True, bidirectional=True)
 
     def forward(self, x):
         # x shape: (batch_size, 1, section_size)
-        x = self.conv(x).transpose(1, 2)    # shape: (batch_size, 3, 129)
+        #x = self.conv(x).transpose(1, 2)    # shape: (batch_size, 3, 129)
         x = self.norm(x)
         x = nn.functional.relu(x)
-        x = self.learn_filterbank(x)       # shape: (batch_size, 3, 32)
-        x, _ = self.bi_lstm(x)            # shape: (batch_size, 3, 64)
+        x = self.learn_filterbank(x)       # shape: (batch_size, 2, 32)
+        x, _ = self.bi_lstm(x)            # shape: (batch_size, 2, 64)
         x = self.soft_attention(x)      # shape: (batch_size, 64)
         #x = torch.mean(x, dim=1)        # shape: (batch_size, 129)
         #x = self.dl(x)  #shape: (batch_size, 64)

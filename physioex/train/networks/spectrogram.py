@@ -253,13 +253,13 @@ class NN(nn.Module):
         batch_size, seq_len, n_chan, n_tsteps, n_fbins = x.size()
 
         # Extract sections of length 2
-        sections = x.unfold(dimension=3, size=2, step=2)  # shape: (batch_size, seq_len, n_chan, 14, 2, n_fbins)
+        sections = x.unfold(dimension=3, size=2, step=2).transpose(4, 5)  # shape: (batch_size, seq_len, n_chan, 14, 2, n_fbins)
         
         # Copy the 29th section to the 30th place
         last_section = x[:, :, :, 28:29, :].unsqueeze(3)  # shape: (batch_size, seq_len, n_chan, 1, 1, n_fbins)
         last_section = last_section.expand(-1, -1, -1, 1, 2, -1)  # shape: (batch_size, seq_len, n_chan, 1, 2, n_fbins)
         sections = torch.cat((sections, last_section), dim=3)  # shape: (batch_size, seq_len, n_chan, 15, 2, n_fbins)
-        sections.reshape(-1, 2, n_fbins)
+        sections.reshape(-1, 2, n_fbins)    #sections shape: (bs*sl*n_chan*15, 2, n_fbins)
    
         #proto, residual, loss, x_embedding, sampled_x = self.epoch_encoder( x )    # proto shape : (batch_size, seq_len, N, hidden_size)
         enc = self.epoch_encoder(sections)
@@ -410,21 +410,19 @@ class EpochEncoder( nn.Module ):
         # we need to extract frequency-related features from the signal
         self.encoder = EncodingLayer()
         
-        self.out_size = self.encoder(torch.randn(1, 1,  hidden_size)).shape[1]
+        self.out_size = self.encoder(torch.randn(1, 2,  129)).shape[1]
         
         self.sampler = HardAttentionLayer(self.out_size, attention_size, N, temperature)
         
         self.prototype = PrototypeLayer( self.out_size, n_prototypes )
         
     def forward( self, x ):
-        # x shape : (batch_size, seq_len, n_chan, n_samp)
-        batch_size, seq_len, n_chan, n_samp = x.size()
-        assert n_samp % self.hidden_size == 0, "Hidden size must be a divisor of the number of samples"
-
-        x = x.reshape( batch_size * seq_len * (n_chan*(n_samp//self.hidden_size)), 1, -1 )
-
-        x = self.encoder( x ) # shape : (batch_size * seq_len *  n_chan*(n_samp//self.hidden_size), out_size)
-        x = x.reshape( batch_size*seq_len, n_chan*(n_samp//self.hidden_size), self.out_size )
+        # shape: (batch_size, seq_len, n_chan, 15, 2, n_fbins)
+        batch_size, seq_len, n_chan, tot_sections, n_sections, n_fbins = x.size()
+        x = x.reshape(-1, 2, n_fbins)    #sections shape: (bs*sl*n_chan*15, 2, n_fbins)
+        
+        x = self.encoder( x ) # shape : (batch_size*seq_len*n_chan*tot_sections , out_size)
+        x = x.reshape( batch_size*seq_len, tot_sections, self.out_size )
         
         sampled_x = self.sampler( x ) # shape : (batch_size * seq_len, N, out_size)
 

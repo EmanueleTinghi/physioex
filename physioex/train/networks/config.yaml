@@ -8,7 +8,7 @@ seqsleepnet:
   preprocessing : xsleepnet
   target_transform: null
   model_kwargs:
-    learning_rate : .00001
+    learning_rate : .0001
 
 tinysleepnet:
   model: physioex.train.networks.tinysleepnet:TinySleepNet

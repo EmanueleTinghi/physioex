@@ -42,7 +42,7 @@ def main():
     parser.add_argument(
         "--preprocessor",
         "-p",
-        "type=str",
+        type=str,
         default=None,
         required=False,
         help="The name of the preprocessor in case of a custom Preprocessor. Needs to extend physioex.preprocess.proprocessor:Preprocessor. Must be passed as a string in the format path.to.preprocessor.module:PreprocessorClass. Expected type: str. Optional. Default: None",
@@ -76,10 +76,13 @@ def main():
         module = importlib.import_module(module_path)
         preprocessor = getattr(module, class_name)
     else:
-        preprocessor = preprocessors[args.dataset]
+        preprocessor = preprocessors[args["dataset"]]
 
     preprocessor_args = {}
     preprocessor_args["data_folder"] = args["data_folder"]
+
+    if "preprocessor_kwargs" not in args.keys():
+        args["preprocessor_kwargs"] = None 
 
     if args["preprocessor_kwargs"] is not None:
 

@@ -444,13 +444,13 @@ class EncodingLayer(nn.Module):
         self.norm = nn.BatchNorm1d(2)
         self.conv = nn.Conv1d(1, 129, 200, 50)
         self.dl = nn.Linear(129, 64)
-        self.bi_lstm = nn.LSTM(32, 32, 1, batch_first=True, bidirectional=True)
+        self.bi_lstm = nn.LSTM(32, 32, 2, batch_first=True, bidirectional=True, dropout=0.25, )
 
     def forward(self, x):
         # x shape: (batch_size, 1, section_size)
         #x = self.conv(x).transpose(1, 2)    # shape: (batch_size, 3, 129)
-        x = self.norm(x)
-        x = nn.functional.relu(x)
+        #x = self.norm(x)
+        #x = nn.functional.relu(x)
         x = self.learn_filterbank(x)       # shape: (batch_size, 2, 32)
         x, _ = self.bi_lstm(x)            # shape: (batch_size, 2, 64)
         x = self.soft_attention(x)      # shape: (batch_size, 64)

@@ -446,6 +446,7 @@ class EncodingLayer(nn.Module):
         self.conv = nn.Conv1d(1, 129, 200, 50)
         self.dl = nn.Linear(129, 64)
         self.bi_lstm = nn.LSTM(32, 32, 2, batch_first=True, bidirectional=True, dropout=0.25, )
+        #self.bi_lstm = nn.LSTM(32, 32, 1, batch_first=True, bidirectional=True)
 
     def forward(self, x):
         # x shape: (batch_size, 1, section_size)

@@ -250,7 +250,7 @@ class NN(nn.Module):
     
     def encode( self, x ):
         # x shape : (batch_size, seq_len, n_chan, n_tstep, n_fbins)
-        batch_size, seq_len, n_chan, n_tsteps, n_fbins = x.size()
+        batch_size, seq_len, _, _, n_fbins = x.size()
 
         # Extract sections of length 2
         sections = x.unfold(dimension=3, size=2, step=2).transpose(4, 5)  # shape: (batch_size, seq_len, n_chan, 14, 2, n_fbins)
@@ -262,7 +262,8 @@ class NN(nn.Module):
         sections.reshape(-1, 2, n_fbins)    #sections shape: (bs*sl*n_chan*15, 2, n_fbins)
    
         #proto, residual, loss, x_embedding, sampled_x = self.epoch_encoder( x )    # proto shape : (batch_size, seq_len, N, hidden_size)
-        enc = self.epoch_encoder(sections)
+        proto, residual, loss, _, _ = self.epoch_encoder( x )    # proto shape : (batch_size, seq_len, N, hidden_size)
+        #enc = self.epoch_encoder(sections)
 
         #reconstructed_section = self.section_reconstructor(x_embedding)
         
@@ -271,8 +272,8 @@ class NN(nn.Module):
         # sum the prototypes to get the epoch representation
         #N = proto.size(2)
         #p_clf = torch.sum( proto, dim=2 ) / N   # shape : (batch_size, seq_len, hidden_size)
-        N = enc.size(2)
-        p_clf = torch.sum( enc, dim=2 ) / N   # shape : (batch_size, seq_len, hidden_size)      
+        N = proto.size(2)
+        p_clf = torch.sum( proto, dim=2 ) / N   # shape : (batch_size, seq_len, hidden_size)      
                 
         # encode the sequence with the transformer        
         clf = self.sequence_encoder( p_clf ).reshape( batch_size*seq_len, -1 )    # shape : (batch_size * seq_len, hidden_size)
@@ -280,8 +281,8 @@ class NN(nn.Module):
         clf = self.clf( clf ).reshape( batch_size, seq_len, -1 )
 
         #return proto, clf, loss
-        #return proto, clf, loss, residual#, reconstructed_section, sampled_x
-        return clf
+        return proto, clf, loss, residual#, reconstructed_section, sampled_x
+        #return clf
             
     def forward( self, x ):        
         x, y = self.encode( x )                   
@@ -365,7 +366,7 @@ class PrototypeLayer( nn.Module ):
         self.commitment_cost = commitment_cost
 
     def forward( self, x ):
-        # x shape : (batch_size, seq_len * N, output_size)
+        # x shape : (batch_size, seq_len, N, output_size)
         x_shape = x.shape
 
         x = x.reshape(-1, self.proto_dim).contiguous()  # shape : (batch_size * seq_len * N, output_size)
@@ -389,9 +390,9 @@ class PrototypeLayer( nn.Module ):
         proto = x + (proto - x).detach()
 
         residuals = x - proto
-        x_embedding = x
+        #x_embedding = x
 
-        return proto, residuals, loss, x_embedding
+        return proto, residuals, loss#, x_embedding
         
         
 class EpochEncoder( nn.Module ):
@@ -429,12 +430,12 @@ class EpochEncoder( nn.Module ):
         #x = x.reshape( batch_size, seq_len*self.N, self.out_size )
         x = sampled_x.reshape( batch_size, seq_len, self.N, self.out_size )
         
-        #proto, residual, loss, x_embedding = self.prototype( x )
+        proto, residual, loss, _ = self.prototype( x )
         
-        #proto = proto.reshape( batch_size, seq_len, self.N, self.out_size )
-        #residual = residual.reshape( batch_size, seq_len, self.N, self.out_size )
+        proto = proto.reshape( batch_size, seq_len, self.N, self.out_size )
+        residual = residual.reshape( batch_size, seq_len, self.N, self.out_size )
         
-        return x #proto, residual, loss, x_embedding, sampled_x
+        return proto, residual, loss#, x_embedding, sampled_x
 
 class EncodingLayer(nn.Module):
     def __init__(self):

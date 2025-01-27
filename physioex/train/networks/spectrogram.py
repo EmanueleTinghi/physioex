@@ -267,7 +267,6 @@ class NN(nn.Module):
         last_section = last_section.expand(-1, -1, -1, 1, 2, -1)  # shape: (batch_size, seq_len, n_chan, 1, 2, n_fbins)
         sections = torch.cat((sections, last_section), dim=3)  # shape: (batch_size, seq_len, n_chan, 15, 2, n_fbins)
    
-        #proto, residual, loss, x_embedding, sampled_x = self.epoch_encoder( x )    # proto shape : (batch_size, seq_len, N, hidden_size)
         proto, residual, loss, indexes = self.epoch_encoder( sections )    # proto shape : (batch_size, seq_len, N, hidden_size)
 
         batch_indices = torch.arange(batch_size*seq_len).unsqueeze(-1)
@@ -276,10 +275,7 @@ class NN(nn.Module):
         reconstructed_section = self.section_reconstructor(proto+residual)
 
         # we selected N prototypes from each epoch in the sequence
-        
         # sum the prototypes to get the epoch representation
-        #N = proto.size(2)
-        #p_clf = torch.sum( proto, dim=2 ) / N   # shape : (batch_size, seq_len, hidden_size)
         N = proto.size(2)
         p_clf = torch.sum( proto, dim=2 ) / N   # shape : (batch_size, seq_len, hidden_size)      
         # encode the sequence with the transformer        

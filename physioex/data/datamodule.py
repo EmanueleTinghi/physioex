@@ -12,7 +12,7 @@ class PhysioExDataModule(pl.LightningDataModule):
         self,
         datasets: Union[List[str], PhysioExDataset],
         batch_size: int = 32,
-        preprocessing: str = "raw",
+        preprocessing:  Union[List[str], str] = "raw",
         selected_channels: List[int] = ["EEG"],
         sequence_length: int = 21,
         target_transform: Callable = None,
@@ -26,7 +26,7 @@ class PhysioExDataModule(pl.LightningDataModule):
 
         self.datasets_id = datasets
         self.num_workers = num_workers
-
+        preprocessing = preprocessing.split(",")
         if isinstance(datasets, list):
             self.dataset = PhysioExDataset(
                 datasets=datasets,

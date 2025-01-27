@@ -1,6 +1,6 @@
 import os
 import pickle
-from typing import Callable, List
+from typing import Callable, List, Union
 
 from loguru import logger
 import numpy as np
@@ -17,7 +17,7 @@ class PhysioExDataset(torch.utils.data.Dataset):
         self,
         datasets: List[str],
         data_folder: str,
-        preprocessing: str = "raw",
+        preprocessing:  Union[List[str], str] = "raw",
         selected_channels: List[int] = ["EEG"],
         sequence_length: int = 21,
         target_transform: Callable = None,

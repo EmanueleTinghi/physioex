@@ -21,7 +21,6 @@ import matplotlib.pyplot as plt
 class ProtoSleepNet(SleepModule):
     def __init__(self, module_config : dict):
         super(ProtoSleepNet, self).__init__(NN(module_config), module_config)
-
         self.prototypes = self.nn.epoch_encoder.prototype
         self.section_length = module_config["proto_lenght"]
         self.num_sections = 3000 // self.section_length
@@ -249,14 +248,31 @@ class NN(nn.Module):
         self.section_length = config["proto_lenght"]
     
     def encode( self, x ):
-        # x shape : (batch_size, seq_len, n_chan, n_tstep, n_fbins)
-        batch_size, seq_len, _, _, n_fbins = x.size()
+        # x: x[0] preprocessing xsleepnet, x[1] preprocessing raw
+        batch_size, seq_len, _, _, _ = x[0].size()
+        _, _, _, time_steps = x[1].size()
+
+        xsleepnet = x[0]
+        raw = x[1].reshape(batch_size*seq_len, time_steps//100, 100)
+
+        window_size = 3
+        step_size = 2
+
+        num_windows = (raw.size(1) - window_size) // step_size + 1
+
+        raw = torch.as_strided(
+            raw,
+            size=(batch_size*seq_len, num_windows, window_size * raw.size(2)),
+            stride=(raw.stride(0), step_size * raw.stride(1), raw.stride(2)),
+        )
+
+        raw = torch.cat([raw, raw[:, -1:, :]], dim=1).reshape(batch_size, seq_len, num_windows + 1, window_size*100)
 
         # Extract sections of length 2
-        sections = x.unfold(dimension=3, size=2, step=2).transpose(4, 5)  # shape: (batch_size, seq_len, n_chan, 14, 2, n_fbins)
-        
+        sections = xsleepnet.unfold(dimension=3, size=2, step=2).transpose(4, 5)  # shape: (batch_size, seq_len, n_chan, 14, 2, n_fbins)
+
         # Copy the 29th section to the 30th place
-        last_section = x[:, :, :, 28:29, :].unsqueeze(3)  # shape: (batch_size, seq_len, n_chan, 1, 1, n_fbins)
+        last_section = xsleepnet[:, :, :, 28:29, :].unsqueeze(3)  # shape: (batch_size, seq_len, n_chan, 1, 1, n_fbins)
         last_section = last_section.expand(-1, -1, -1, 1, 2, -1)  # shape: (batch_size, seq_len, n_chan, 1, 2, n_fbins)
         sections = torch.cat((sections, last_section), dim=3)  # shape: (batch_size, seq_len, n_chan, 15, 2, n_fbins)
    
@@ -273,7 +289,6 @@ class NN(nn.Module):
         #p_clf = torch.sum( proto, dim=2 ) / N   # shape : (batch_size, seq_len, hidden_size)
         N = proto.size(2)
         p_clf = torch.sum( proto, dim=2 ) / N   # shape : (batch_size, seq_len, hidden_size)      
-                
         # encode the sequence with the transformer        
         clf = self.sequence_encoder( p_clf ).reshape( batch_size*seq_len, -1 )    # shape : (batch_size * seq_len, hidden_size)
         

@@ -283,7 +283,7 @@ class NN(nn.Module):
         
         clf = self.clf( clf ).reshape( batch_size, seq_len, -1 )
 
-        return proto, clf, loss, residual, indexes, original_section, reconstructed_section
+        return proto, clf, loss, residual, original_section, reconstructed_section
             
     def forward( self, x ):        
         x, y = self.encode( x )                   

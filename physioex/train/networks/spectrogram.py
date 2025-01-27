@@ -110,38 +110,29 @@ class ProtoSleepNet(SleepModule):
         # get the logged metrics
         if "val_loss" not in self.trainer.logged_metrics:
             self.log("val_loss", float("inf"))
+
         # Logica di training
         inputs, targets = batch
-        #prototype, clf, loss, residuals, reconstructed_section, original_section = self.encode(inputs)
-        prototype, clf, loss, residuals = self.encode(inputs)
-        #clf = self.encode(inputs)
+        prototype, clf, loss, residuals, original_section, reconstructed_section = self.encode(inputs)
 
-        #return self.compute_loss(prototype, clf, targets, loss, residuals, reconstructed_section, original_section)
-        return self.compute_loss(prototype, clf, targets, loss, residuals)
-        #return self.compute_loss(clf, targets)
+        return self.compute_loss(prototype, clf, targets, loss, residuals, original_section, reconstructed_section)
+
 
     def validation_step(self, batch, batch_idx):
         # Logica di validazione
         inputs, targets = batch
-        #prototype, clf, loss, residuals, reconstructed_section, original_section = self.encode(inputs)
-        prototype, clf, loss, residuals = self.encode(inputs)
-        #clf = self.encode(inputs)
+        prototype, clf, loss, residuals, original_section, reconstructed_section = self.encode(inputs)
 
-        #return self.compute_loss(prototype, clf, targets, loss, residuals, reconstructed_section, original_section, "val")
-        return self.compute_loss(prototype, clf, targets, loss, residuals, "val")
-        #return self.compute_loss(clf, targets, "val")
+        return self.compute_loss(prototype, clf, targets, loss, residuals, original_section, reconstructed_section, "val")
+
 
     def test_step(self, batch, batch_idx):
         # Logica di training
         inputs, targets = batch
-
-        #prototype, clf, loss, residuals, reconstructed_section, original_section = self.encode(inputs)
-        prototype, clf, loss, residuals = self.encode(inputs)
-        #clf = self.encode(inputs)
-
-        #return self.compute_loss(prototype, clf, targets, loss, residuals, reconstructed_section, original_section, "test", log_metrics=True)   
-        return self.compute_loss(prototype, clf, targets, loss, residuals, "test", log_metrics=True)
-        #return self.compute_loss(clf, targets, "test", log_metrics=True)    
+        prototype, clf, loss, residuals, original_section, reconstructed_section = self.encode(inputs)
+  
+        return self.compute_loss(prototype, clf, targets, loss, residuals, original_section, reconstructed_section, "test", log_metrics=True)
+    
 
     def compute_loss(
         self,
@@ -150,19 +141,19 @@ class ProtoSleepNet(SleepModule):
         targets, 
         encoding_loss,
         residuals,
-        #reconstructed_section, 
-        #original_section,
+        reconstructed_section, 
+        original_section,
         log: str = "train",
         log_metrics: bool = False,
     ):
         self.step += 1
-        #reconstructed_section = reconstructed_section.reshape(-1, self.section_length)
-        #original_section = original_section.reshape(-1, self.section_length)
-        
+        reconstructed_section = reconstructed_section.reshape(-1, self.section_length)
+        original_section = original_section.reshape(-1, self.section_length)
+
         if self.step % 250 == 0:
             self.log_prototypes(log)
             self.log_prototypes_variance(log)
-            #self.log_reconstructions(original_section, reconstructed_section, targets, outputs, log)
+            self.log_reconstructions(original_section, reconstructed_section, targets, outputs, log)
         
         batch_size, seq_len, n_class = outputs.size()
         #print("prototo shape", prototypes.size())
@@ -189,21 +180,21 @@ class ProtoSleepNet(SleepModule):
         proto_gauss_loss = gauss_dist.log_prob(prototypes)
         proto_gauss_loss = proto_gauss_loss.sum(dim=-1).mean() * 0.003
 
-        #reconstruction_loss = torch.nn.functional.mse_loss(original_section, reconstructed_section)
-        #std_x = torch.sqrt(torch.var(original_section, dim=1))
-        #std_x_hat = torch.sqrt(torch.var(reconstructed_section, dim=1))
-        #std_loss = torch.nn.functional.mse_loss(std_x, std_x_hat)      
+        reconstruction_loss = torch.nn.functional.mse_loss(original_section, reconstructed_section)
+        std_x = torch.sqrt(torch.var(original_section, dim=1))
+        std_x_hat = torch.sqrt(torch.var(reconstructed_section, dim=1))
+        std_loss = torch.nn.functional.mse_loss(std_x, std_x_hat)      
 
         ce_loss = self.cel(outputs, targets)
         # encoding_loss + ce_loss - kl_loss - proto_gauss_loss + 2*reconstruction_loss + std_loss
-        total_loss = ce_loss + encoding_loss - kl_loss - proto_gauss_loss #+ reconstruction_loss + std_loss
+        total_loss = ce_loss + encoding_loss - kl_loss - proto_gauss_loss + reconstruction_loss + std_loss
 
         self.log(f"{log}_encoding_loss", encoding_loss, prog_bar=False, on_epoch=False, on_step=True)
         self.log(f"{log}_ce_loss", ce_loss, prog_bar=False, on_epoch=False, on_step=True)
         self.log(f"{log}_kl_loss", kl_loss, prog_bar=False, on_epoch=False, on_step=True)
         self.log(f"{log}_proto_gauss_loss", proto_gauss_loss, prog_bar=False, on_epoch=False, on_step=True)
-        #self.log(f"{log}_rec_loss", reconstruction_loss, prog_bar=False, on_epoch=True, on_step=True)
-        #self.log(f"{log}_rec_std_loss", std_loss, prog_bar=False, on_epoch=True, on_step=True)
+        self.log(f"{log}_rec_loss", reconstruction_loss, prog_bar=False, on_epoch=True, on_step=True)
+        self.log(f"{log}_rec_std_loss", std_loss, prog_bar=False, on_epoch=True, on_step=True)
         self.log(f"{log}_loss", total_loss, prog_bar=True, on_epoch=True, on_step=True)
         self.log(f"{log}_acc", self.wacc(outputs, targets), prog_bar=True, on_epoch=True, on_step=True)
         self.log(f"{log}_f1", self.wf1(outputs, targets), prog_bar=False, on_epoch=True, on_step=True)
@@ -266,7 +257,7 @@ class NN(nn.Module):
             stride=(raw.stride(0), step_size * raw.stride(1), raw.stride(2)),
         )
 
-        raw = torch.cat([raw, raw[:, -1:, :]], dim=1).reshape(batch_size, seq_len, num_windows + 1, window_size*100)
+        raw = torch.cat([raw, raw[:, -1:, :]], dim=1)  # (bs*sl, 15, 300)
 
         # Extract sections of length 2
         sections = xsleepnet.unfold(dimension=3, size=2, step=2).transpose(4, 5)  # shape: (batch_size, seq_len, n_chan, 14, 2, n_fbins)
@@ -277,11 +268,13 @@ class NN(nn.Module):
         sections = torch.cat((sections, last_section), dim=3)  # shape: (batch_size, seq_len, n_chan, 15, 2, n_fbins)
    
         #proto, residual, loss, x_embedding, sampled_x = self.epoch_encoder( x )    # proto shape : (batch_size, seq_len, N, hidden_size)
-        proto, residual, loss = self.epoch_encoder( sections )    # proto shape : (batch_size, seq_len, N, hidden_size)
-        #enc = self.epoch_encoder(sections)
+        proto, residual, loss, indexes = self.epoch_encoder( sections )    # proto shape : (batch_size, seq_len, N, hidden_size)
 
-        #reconstructed_section = self.section_reconstructor(x_embedding)
-        
+        batch_indices = torch.arange(batch_size*seq_len).unsqueeze(-1)
+        original_section = raw[batch_indices, indexes] 
+
+        reconstructed_section = self.section_reconstructor(proto+residual)
+
         # we selected N prototypes from each epoch in the sequence
         
         # sum the prototypes to get the epoch representation
@@ -294,9 +287,7 @@ class NN(nn.Module):
         
         clf = self.clf( clf ).reshape( batch_size, seq_len, -1 )
 
-        #return proto, clf, loss
-        return proto, clf, loss, residual#, reconstructed_section, sampled_x
-        #return clf
+        return proto, clf, loss, residual, indexes, original_section, reconstructed_section
             
     def forward( self, x ):        
         x, y = self.encode( x )                   
@@ -390,9 +381,9 @@ class PrototypeLayer( nn.Module ):
                     + torch.sum(self.prototypes.weight**2, dim=1)
                     - 2 * torch.matmul(x, self.prototypes.weight.t()))
 
-        proto_indices = torch.argmin(dist, dim=1).unsqueeze(1) # shape : (batch_size * seq_len * N, 1)
-        prototype_OHE = torch.zeros(proto_indices.shape[0], self.proto_num).to(x.device) # shape: (batch_size * seq_len * N, proto_num)
-        prototype_OHE.scatter_(1, proto_indices, 1)
+        proto_indexes = torch.argmin(dist, dim=1).unsqueeze(1) # shape : (batch_size * seq_len * N, 1)
+        prototype_OHE = torch.zeros(proto_indexes.shape[0], self.proto_num).to(x.device) # shape: (batch_size * seq_len * N, proto_num)
+        prototype_OHE.scatter_(1, proto_indexes, 1)
 
         proto = torch.matmul(prototype_OHE, self.prototypes.weight).view(x_shape)   #shape: (batch_size, seq_len * N, output_size)
         x = x.view(x_shape)
@@ -404,9 +395,8 @@ class PrototypeLayer( nn.Module ):
         proto = x + (proto - x).detach()
 
         residuals = x - proto
-        #x_embedding = x
 
-        return proto, residuals, loss#, x_embedding
+        return proto, residuals, loss
         
         
 class EpochEncoder( nn.Module ):
@@ -439,7 +429,7 @@ class EpochEncoder( nn.Module ):
         x = self.encoder( x ) # shape : (batch_size*seq_len*n_chan*tot_sections , out_size)
         x = x.reshape( batch_size*seq_len, tot_sections, self.out_size )
         
-        sampled_x = self.sampler( x ) # shape : (batch_size * seq_len, N, out_size)
+        sampled_x, indexes = self.sampler( x ) # shape : (batch_size * seq_len, N, out_size)
 
         #x = x.reshape( batch_size, seq_len*self.N, self.out_size )
         x = sampled_x.reshape( batch_size, seq_len, self.N, self.out_size )
@@ -449,7 +439,7 @@ class EpochEncoder( nn.Module ):
         proto = proto.reshape( batch_size, seq_len, self.N, self.out_size )
         residual = residual.reshape( batch_size, seq_len, self.N, self.out_size )
         
-        return proto, residual, loss#, x_embedding, sampled_x
+        return proto, residual, loss, indexes
 
 class EncodingLayer(nn.Module):
     def __init__(self):
@@ -515,11 +505,12 @@ class HardAttentionLayer(nn.Module):
         # apply the Gumbel-Softmax trick to select the N most important elements
         alphas = torch.nn.functional.gumbel_softmax(logits, tau=self.temperature, hard=True)
         alphas = alphas.reshape( batch_size, self.N, section_num )
-        
+        indexes = torch.argmax(alphas, dim=-1)
+
         # select N elements from the sequence x using alphas
         x = torch.einsum( "bns, bsh -> bnh", alphas, x )
         
-        return x
+        return x, indexes
 
 class PositionalEncoding(nn.Module):
     def __init__(self, hidden_size, max_len=5000):

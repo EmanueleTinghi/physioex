@@ -121,7 +121,7 @@ class MemmapReader(Reader):
         if len( X_ ) == 1:
             X_ = X_[0]        
         else:
-            X_ = tuple(X_) # check
+            X_ = tuple(X_)
         return  X_ 
 
     def get_stages(self, idx):

@@ -2,10 +2,11 @@ import math
 from physioex.train.networks.base import SleepModule
 import torch
 import torch.nn.functional as F
-from physioex.train.networks.prototype_kl import ProtoSleepNet
+from physioex.train.networks.spectrogram import ProtoSleepNet, PositionalEncoding
 from scipy.signal import welch
 
 import torch.nn as nn
+import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -16,70 +17,99 @@ class SampleReconstructor(SleepModule):
         self.section_length = module_config["proto_lenght"]
         self.num_sections = 3000 // self.section_length
         self.N = module_config["N"]
-
-    def log_reconstructions(self, x, x_hat, log : str):        
+        
+    def log_reconstructions(self, x, x_hat, target, output, log):        
         # x shape : (N, hidden_size)
         # convert the model parameters to numpy
 
         x = x.clone().detach().cpu().numpy()
         x_hat = x_hat.clone().detach().cpu().numpy()
+        target = target.clone().detach().cpu().numpy()
+        output = output.clone().detach().cpu().numpy()
+
         
+        target = np.expand_dims(target, axis=-1)
+        target = np.repeat(target, self.N, axis=-1)
+        target = target.flatten()
+        
+        output = np.argmax(output, axis=-1)
+        output = np.expand_dims(output, axis=-1)
+        output = np.repeat(output, self.N, axis=-1)
+        output = output.flatten()
+
+        indices = np.arange(len(x))
+        np.random.shuffle(indices)
+        x = x[indices]
+        x_hat = x_hat[indices]
+        target = target[indices]
+        output = output[indices]
+
         # y label equal to prototype index, x label equal to the feature index
         # display the cbar with diverging colors
         fig, axes = plt.subplots(4, 5, figsize=(25, 20))
         axes = axes.flatten()
         for i, ax in enumerate(axes):
-            sns.lineplot(x = range(self.section_length), y = x[i].flatten(), ax=ax, color="blue", label="Original")
-            sns.lineplot(x = range(self.section_length), y = x_hat[i].flatten(), ax=ax, color="red", label="Reconstructed")
-
-        handles, labels = ax.get_legend_handles_labels()
-        fig.legend(handles, labels, loc='upper right')
-        self.logger.experiment.add_figure(f"{log}-reconstruction", fig, self.step )
-        plt.close()    
-
+            sns.lineplot(x=range(self.section_length), y=x[i].flatten(), ax=ax, color="blue", label="Original")
+            sns.lineplot(x=range(self.section_length), y=x_hat[i].flatten(), ax=ax, color="red", label="Reconstructed")
+            
+            # Add title for each subplot
+            ax.set_title(f"Target: {target[i]}, Output: {output[i]}")
+            
+        # Create a single global legend
+        handles, labels = axes[0].get_legend_handles_labels()
+        fig.legend(handles, labels, loc='upper right', title="Legend")
+        
+        self.logger.experiment.add_figure(f"{log}-reconstruction", fig, self.step)
+        plt.close()
     
     def training_step(self, batch, batch_idx):
         # get the logged metrics
         if "val_loss" not in self.trainer.logged_metrics:
             self.log("val_loss", float("inf"))
         # Logica di training
-        inputs, _ = batch
-        x_hat, x = self.forward(inputs)
+        inputs, targets = batch
+        x_hat, x, clf = self.forward(inputs)
 
-        return self.compute_loss(x_hat, x, "train")
+        return self.compute_loss(x_hat, x, targets, clf, "train")
 
     def validation_step(self, batch, batch_idx):
         # Logica di validazione
-        inputs, _ = batch
-        x_hat, x = self.forward(inputs)
+        inputs, targets = batch
+        x_hat, x, clf = self.forward(inputs)
 
-        return self.compute_loss(x_hat, x, "val")
+        return self.compute_loss(x_hat, x, targets, clf, "val")
 
     def test_step(self, batch, batch_idx):
         # Logica di training
-        inputs, _ = batch
-        x_hat, x = self.forward(inputs)
+        inputs, targets = batch
+        x_hat, x, clf  = self.forward(inputs)
 
-        return self.compute_loss(x_hat, x, "test", log_metrics=True)
+        return self.compute_loss(x_hat, x, targets, clf, "test", log_metrics=True)
 
     def compute_loss(self, 
                     x_hat, 
-                    x, 
+                    x,
+                    targets,
+                    clf,
                     log: str = "train", 
                     log_metrics: bool = False):
         self.step += 1
         
         if self.step % 250 == 0:
-            self.log_reconstructions(x, x_hat, log)
+            self.log_reconstructions(x, x_hat, targets, clf, log)
         
         x = x.reshape(-1, self.section_length)
         mse_loss = torch.nn.functional.mse_loss(x, x_hat)
+        '''std_x = torch.sqrt(torch.var(x, dim=1))
+        std_x_hat = torch.sqrt(torch.var(x_hat, dim=1))
+        std_loss = torch.nn.functional.mse_loss(std_x, std_x_hat)'''   
 
-        total_loss = mse_loss
+        total_loss = mse_loss# + std_loss
 
         # Log individual losses
         self.log(f"{log}_mse_loss", mse_loss, prog_bar=True, on_step=True, on_epoch=True)
-        self.log(f"{log}_total_loss", total_loss, prog_bar=True, on_step=True, on_epoch=True)
+        #self.log(f"{log}_std_loss", std_loss, prog_bar=True, on_step=True, on_epoch=True)
+        self.log(f"{log}_loss", total_loss, prog_bar=True, on_step=True, on_epoch=True)
         self.log(f"{log}_acc", -total_loss, prog_bar=True, on_step=True, on_epoch=True)
 
         return total_loss       
@@ -90,7 +120,11 @@ class NN(nn.Module):
         self.N = config["N"]
         self.section_length = config["proto_lenght"]
         self.num_sections = 3000 // self.section_length
+        self.num_components = 300
+        self.hidden_size = 25
+        self.dim_ff = 128  
         self.proto_dim = 64
+        self.nhead = 2
 
         # Load the pre-trained ProtoSleepNet model
         self.proto_model = ProtoSleepNet.load_from_checkpoint(config["proto_ck"], 
@@ -100,60 +134,43 @@ class NN(nn.Module):
         for param in self.proto_model.parameters():
             param.requires_grad = False
 
-        self.amplitude_layer = nn.Sequential(
-            nn.Linear(self.proto_dim, self.proto_dim*4),
+        self.reconstruction_linear = nn.Sequential(
+            nn.Linear(self.proto_dim, self.num_components),
             nn.ReLU(),
-            nn.LayerNorm(self.proto_dim*4),
-            nn.Dropout(0.3),
-            nn.Linear(self.proto_dim*4, 100),
-            nn.Dropout(0.2)
+            nn.LayerNorm(self.num_components),
+            nn.Dropout(0.5)
         )
 
-        self.phase_layer = nn.Sequential(
-            nn.Linear(self.proto_dim, self.proto_dim*4),
-            nn.ReLU(),
-            nn.LayerNorm(self.proto_dim*4),
-            nn.Dropout(0.3),
-            nn.Linear(self.proto_dim*4, 100),
-            nn.Dropout(0.2)
+        self.encoder = nn.TransformerEncoderLayer(
+            d_model= self.hidden_size*2,
+            nhead=self.nhead,
+            dim_feedforward=self.dim_ff,
+            dropout=0.25,
+            batch_first=True
         )
+       
+        self.encoder = nn.TransformerEncoder( self.encoder, num_layers=2 )
 
-        self.freqs = torch.arange(0.5, 50.5, 0.5)
-        self.t = torch.linspace(0, self.section_length, steps = self.section_length, device = "cuda").unsqueeze(0).unsqueeze(0)
+        self.pe = PositionalEncoding(self.hidden_size*2, 1024)
 
-    def sinusoid_extractor(self, z):
-        # z shape: [batch_size*seq_len*num_sections*n_channels, proto_dim]
-        amps = self.amplitude_layer(z)
-        phases = self.phase_layer(z)
-        return amps, phases
-    
-    def print_memory_usage(self):
-        print(f"Allocated: {torch.cuda.memory_allocated() / 1024 ** 3:.2f} GB")
-        print(f"Reserved: {torch.cuda.memory_reserved() / 1024 ** 3:.2f} GB")
-
-    def signal_reconstruction(self, amps, phases):
-        sinusoids = amps.unsqueeze(-1) * torch.sin(2 * torch.pi * self.freqs.unsqueeze(-1) * self.t + phases.unsqueeze(-1))
-        signal = sinusoids.sum(dim=1, keepdim=True)  # [-1, 1, section_length]
-        signal = (signal + self.residual_layer(signal)).reshape(-1, self.section_length)
-        return signal
-
-    def signal_builder(self, z):
-        # z shape: [batch_size*seq_len*num_sections*n_channels, proto_dim]
-        amps, phases = self.sinusoid_extractor(z)
-        z_hat = self.signal_reconstruction(amps, phases)
-        return z_hat
+    def reconstructor(self, x):
+        x_hat = self.reconstruction_linear(x)
+        x_hat = x_hat.reshape(-1, self.num_components//self.hidden_size, self.hidden_size)
+        x_hat = x_hat.repeat(1,1,2)
+        x_hat = self.pe(x_hat)
+        x_hat = self.encoder(x_hat)
+        x_hat = x_hat.reshape(-1, self.num_components//self.hidden_size, 2, self.hidden_size)
+        x_hat = x_hat.mean(dim=2)
+        return x_hat        
 
     def forward(self, x):
-        # x = [batch_size, seq_len, n_channels, 3000]
-        
-        x = x.reshape(-1, 1, self.section_length)   # [batch_size*seq_len*num_sections*n_channels, 1, section_length] (num_sections = 3000/section_length)
+        # x: x[0] preprocessing xsleepnet, x[1] preprocessing raw
 
         # Get the prototypes from the frozen ProtoSleepNet model
         with torch.no_grad():
-            p = self.proto_model.nn.epoch_encoder.conv1(x)  # Shape: [batch_size*seq_len*num_sections*n_channels, proto_dim]
-            proto, res, _ = self.proto_model.nn.epoch_encoder.prototype(p)  # Shape: [batch_size*seq_len*num_sections*n_channels, proto_dim]
+            proto, clf, _, res, original_section = self.proto_model.nn.encode(x)
             
         z = proto + res
-        x_hat = self.signal_builder(z)
+        x_hat = self.reconstructor(z).reshape(-1, self.num_components)
 
-        return x_hat, x
+        return x_hat, original_section, clf

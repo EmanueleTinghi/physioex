@@ -255,17 +255,17 @@ protosleepnet_n7p25:
     N : 7
     n_prototypes : 25
 
-protosleepnet_reconstructor_mass:
+protosleepnet_reconstructor:
   model: physioex.train.networks.sample_reconstructor:SampleReconstructor
-  preprocessing : raw
+  preprocessing : xsleepnet,raw
   target_transform: null
   model_kwargs:
-    proto_ck: /home/coder/physioex/models/mass_diff_seqle/1ch/p200/n4/fold=-1-epoch=8-step=26630-val_loss=inf.ckpt
-    proto_model: "protosleepnet_p200n4p25"
-    proto_lenght : 200
-    N : 4
-    n_prototypes : 25
-    loss: physioex.train.networks.utils.loss:RegressionLoss
+    proto_ck: /home/coder/shared/physioex/models/definitivi/mass_spectrograms/2lstm_drop_nobnrelu/proto/1sample/fold=-1-epoch=8-step=26066-val_loss=1.04.ckpt
+    proto_model: protosleepnet_spectrogram
+    proto_lenght : 300
+    N : 1
+    n_prototypes : 50
+    loss: physioex.train.networks.utils.loss:CrossEntropyLoss
 
     learning_rate : .0002
 
@@ -305,13 +305,13 @@ protosleepnet_p300n4p50_inverted:
 
     learning_rate : .0001
 
-protosleepnet_p300n4p50_spectrogram:
+protosleepnet_spectrogram:
   model: physioex.train.networks.spectrogram:ProtoSleepNet
-  preprocessing : xsleepnet
+  preprocessing : xsleepnet,raw
   target_transform: null
   model_kwargs:
     proto_lenght : 300
-    N : 4
+    N : 1
     n_prototypes : 50
     loss: physioex.train.networks.utils.loss:CrossEntropyLoss
 

@@ -61,6 +61,7 @@ class ProtoSleepNet(SleepModule):
         x_hat = x_hat.clone().detach().cpu().numpy()
         target = target.clone().detach().cpu().numpy()
         output = output.clone().detach().cpu().numpy()
+
         
         target = np.expand_dims(target, axis=-1)
         target = np.repeat(target, self.N, axis=-1)
@@ -70,7 +71,14 @@ class ProtoSleepNet(SleepModule):
         output = np.expand_dims(output, axis=-1)
         output = np.repeat(output, self.N, axis=-1)
         output = output.flatten()
-    
+
+        indices = np.arange(len(x))
+        np.random.shuffle(indices)
+        x = x[indices]
+        x_hat = x_hat[indices]
+        target = target[indices]
+        output = output[indices]
+
         # y label equal to prototype index, x label equal to the feature index
         # display the cbar with diverging colors
         fig, axes = plt.subplots(4, 5, figsize=(25, 20))
@@ -113,25 +121,25 @@ class ProtoSleepNet(SleepModule):
 
         # Logica di training
         inputs, targets = batch
-        prototype, clf, loss, residuals, original_section = self.encode(inputs)
+        prototype, clf, loss, residuals, original_section, reconstructed_section = self.encode(inputs)
 
-        return self.compute_loss(prototype, clf, targets, loss, residuals, original_section)
+        return self.compute_loss(prototype, clf, targets, loss, residuals, original_section, reconstructed_section)
 
 
     def validation_step(self, batch, batch_idx):
         # Logica di validazione
         inputs, targets = batch
-        prototype, clf, loss, residuals, original_section = self.encode(inputs)
+        prototype, clf, loss, residuals, original_section, reconstructed_section = self.encode(inputs)
 
-        return self.compute_loss(prototype, clf, targets, loss, residuals, original_section, "val")
+        return self.compute_loss(prototype, clf, targets, loss, residuals, original_section, reconstructed_section, "val")
 
 
     def test_step(self, batch, batch_idx):
         # Logica di training
         inputs, targets = batch
-        prototype, clf, loss, residuals, original_section = self.encode(inputs)
+        prototype, clf, loss, residuals, original_section, reconstructed_section = self.encode(inputs)
   
-        return self.compute_loss(prototype, clf, targets, loss, residuals, original_section, "test", log_metrics=True)
+        return self.compute_loss(prototype, clf, targets, loss, residuals, original_section, reconstructed_section, "test", log_metrics=True)
     
 
     def compute_loss(
@@ -141,20 +149,19 @@ class ProtoSleepNet(SleepModule):
         targets, 
         encoding_loss,
         residuals,
+        reconstructed_section, 
         original_section,
-        #reconstructed_section, 
-        #original_section,
         log: str = "train",
         log_metrics: bool = False,
     ):
         self.step += 1
-        #reconstructed_section = reconstructed_section.reshape(-1, self.section_length)
-        #original_section = original_section.reshape(-1, self.section_length)
+        reconstructed_section = reconstructed_section.reshape(-1, self.section_length)
+        original_section = original_section.reshape(-1, self.section_length)
 
         if self.step % 250 == 0:
             self.log_prototypes(log)
             self.log_prototypes_variance(log)
-            #self.log_reconstructions(original_section, reconstructed_section, targets, outputs, log)
+            self.log_reconstructions(original_section, reconstructed_section, targets, outputs, log)
         
         batch_size, seq_len, n_class = outputs.size()
         #print("prototo shape", prototypes.size())
@@ -181,21 +188,21 @@ class ProtoSleepNet(SleepModule):
         proto_gauss_loss = gauss_dist.log_prob(prototypes)
         proto_gauss_loss = proto_gauss_loss.sum(dim=-1).mean() * 0.003
 
-        #reconstruction_loss = torch.nn.functional.mse_loss(original_section, reconstructed_section)
-        #std_x = torch.sqrt(torch.var(original_section, dim=1))
-        #std_x_hat = torch.sqrt(torch.var(reconstructed_section, dim=1))
-        #std_loss = torch.nn.functional.mse_loss(std_x, std_x_hat)      
+        reconstruction_loss = torch.nn.functional.mse_loss(original_section, reconstructed_section)
+        std_x = torch.sqrt(torch.var(original_section, dim=1))
+        std_x_hat = torch.sqrt(torch.var(reconstructed_section, dim=1))
+        std_loss = torch.nn.functional.mse_loss(std_x, std_x_hat)      
 
         ce_loss = self.cel(outputs, targets)
         # encoding_loss + ce_loss - kl_loss - proto_gauss_loss + 2*reconstruction_loss + std_loss
-        total_loss = ce_loss + 2*encoding_loss - kl_loss - proto_gauss_loss# + reconstruction_loss + std_loss
+        total_loss = ce_loss + 2*encoding_loss - kl_loss - proto_gauss_loss + reconstruction_loss + std_loss
 
         self.log(f"{log}_encoding_loss", encoding_loss, prog_bar=False, on_epoch=False, on_step=True)
         self.log(f"{log}_ce_loss", ce_loss, prog_bar=False, on_epoch=False, on_step=True)
         self.log(f"{log}_kl_loss", kl_loss, prog_bar=False, on_epoch=False, on_step=True)
         self.log(f"{log}_proto_gauss_loss", proto_gauss_loss, prog_bar=False, on_epoch=False, on_step=True)
-        #self.log(f"{log}_rec_loss", reconstruction_loss, prog_bar=False, on_epoch=True, on_step=True)
-        #self.log(f"{log}_rec_std_loss", std_loss, prog_bar=False, on_epoch=True, on_step=True)
+        self.log(f"{log}_rec_loss", reconstruction_loss, prog_bar=False, on_epoch=True, on_step=True)
+        self.log(f"{log}_rec_std_loss", std_loss, prog_bar=False, on_epoch=True, on_step=True)
         self.log(f"{log}_loss", total_loss, prog_bar=True, on_epoch=True, on_step=True)
         self.log(f"{log}_acc", self.wacc(outputs, targets), prog_bar=True, on_epoch=True, on_step=True)
         self.log(f"{log}_f1", self.wf1(outputs, targets), prog_bar=False, on_epoch=True, on_step=True)
@@ -221,7 +228,7 @@ class NN(nn.Module):
             attention_size = 128, 
             N = config["N"], 
             n_prototypes = config["n_prototypes"], 
-            temperature = 1.0 
+            temperature = 1.0,
         )
         
         self.sequence_encoder = SequenceEncoder(
@@ -233,9 +240,10 @@ class NN(nn.Module):
             N = config["N"],
             section_length = config["proto_lenght"],
             num_sections = 3000//config["proto_lenght"],
-            proto_dim = self.epoch_encoder.out_size
+            proto_dim = self.epoch_encoder.out_size,
+            nhead = 2
         )
-    
+        
         self.clf = nn.Linear( self.epoch_encoder.out_size, config["n_classes"] )
         self.section_length = config["proto_lenght"]
     
@@ -271,9 +279,10 @@ class NN(nn.Module):
         proto, residual, loss, indexes = self.epoch_encoder( sections )    # proto shape : (batch_size, seq_len, N, hidden_size)
 
         batch_indices = torch.arange(batch_size*seq_len).unsqueeze(-1)
+        
         original_section = raw[batch_indices, indexes] 
 
-        #reconstructed_section = self.section_reconstructor(proto+residual)
+        reconstructed_section = self.section_reconstructor(proto+residual)
 
         # we selected N prototypes from each epoch in the sequence
         # sum the prototypes to get the epoch representation
@@ -284,7 +293,7 @@ class NN(nn.Module):
         
         clf = self.clf( clf ).reshape( batch_size, seq_len, -1 )
 
-        return proto, clf, loss, residual, original_section #, reconstructed_section
+        return proto, clf, loss, residual, original_section, reconstructed_section
             
     def forward( self, x ):        
         x, y = self.encode( x )                   
@@ -295,7 +304,8 @@ class SectionReconstructor(nn.Module):
         N : int,
         section_length: int,
         num_sections = int,
-        proto_dim = int
+        proto_dim = int,
+        nhead = int
     ):
         super(SectionReconstructor, self).__init__()
         self.N = N
@@ -303,21 +313,36 @@ class SectionReconstructor(nn.Module):
         self.num_sections = num_sections
         self.proto_dim = proto_dim
         self.num_components = 300
+        self.hidden_size = 25
+        self.dim_ff = 128
 
         self.reconstruction_linear = nn.Sequential(
-            nn.Linear(self.proto_dim, self.proto_dim*4),
+            nn.Linear(self.proto_dim, self.num_components),
             nn.ReLU(),
-            nn.LayerNorm(self.proto_dim*4),
-            nn.Dropout(0.4),
-            nn.Linear(self.proto_dim*4, self.proto_dim*2),
-            nn.ReLU(),
-            nn.LayerNorm(self.proto_dim*2),
-            nn.Dropout(0.4),
-            nn.Linear(self.proto_dim*2, self.num_components),
+            nn.LayerNorm(self.num_components),
+            nn.Dropout(0.5)
         )
+
+        self.encoder = nn.TransformerEncoderLayer(
+            d_model= self.hidden_size*2,
+            nhead=nhead,
+            dim_feedforward=self.dim_ff,
+            dropout=0.25,
+            batch_first=True
+        )
+       
+        self.encoder = nn.TransformerEncoder( self.encoder, num_layers=2 )
+
+        self.pe = PositionalEncoding(self.hidden_size*2, 1024)
      
     def forward(self, x):
         x_hat = self.reconstruction_linear(x)
+        x_hat = x_hat.reshape(-1, self.num_components//self.hidden_size, self.hidden_size)
+        x_hat = x_hat.repeat(1,1,2)
+        x_hat = self.pe(x_hat)
+        x_hat = self.encoder(x_hat)
+        x_hat = x_hat.reshape(-1, self.num_components//self.hidden_size, 2, self.hidden_size)
+        x_hat = x_hat.mean(dim=2)
         return x_hat
 
 class SequenceEncoder( nn.Module ):
@@ -339,7 +364,7 @@ class SequenceEncoder( nn.Module ):
             batch_first=True
         )
         
-        self.encoder = nn.TransformerEncoder( self.encoder, num_layers=1 )
+        self.encoder = nn.TransformerEncoder( self.encoder, num_layers=2 )
 
     def forward( self, x):
         # x shape : (batch_size, seq_len, hidden_size)
@@ -443,21 +468,12 @@ class EncodingLayer(nn.Module):
         super(EncodingLayer, self).__init__()
         self.soft_attention = AttentionLayer(hidden_size=64, attention_size=128)
         self.learn_filterbank = LearnableFilterbank(F=129, in_chan=1, nfilt=32)
-        self.norm = nn.BatchNorm1d(2)
-        self.conv = nn.Conv1d(1, 129, 200, 50)
-        self.dl = nn.Linear(129, 64)
         self.bi_lstm = nn.LSTM(32, 32, 2, batch_first=True, bidirectional=True, dropout=0.25, )
 
     def forward(self, x):
-        # x shape: (batch_size, 1, section_size)
-        #x = self.conv(x).transpose(1, 2)    # shape: (batch_size, 3, 129)
-        #x = self.norm(x)
-        #x = nn.functional.relu(x)
         x = self.learn_filterbank(x)       # shape: (batch_size, 2, 32)
         x, _ = self.bi_lstm(x)            # shape: (batch_size, 2, 64)
         x = self.soft_attention(x)      # shape: (batch_size, 64)
-        #x = torch.mean(x, dim=1)        # shape: (batch_size, 129)
-        #x = self.dl(x)  #shape: (batch_size, 64)
         return x
 
 

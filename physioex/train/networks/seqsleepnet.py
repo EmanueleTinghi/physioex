@@ -21,10 +21,10 @@ class SeqSleepNet(SleepModule):
                 "lowfreq": 0,
                 "highfreq": 50,
                 "seqnhidden1": 64,
-                "seqnlayer1": 1,
+                "seqnlayer1": 2,
                 "attentionsize1": 32,
                 "seqnhidden2": 64,
-                "seqnlayer2": 1,
+                "seqnlayer2": 2,
             }
         )
 
@@ -80,6 +80,7 @@ class EpochEncoder(nn.Module):
             num_layers=module_config["seqnlayer1"],
             batch_first=True,
             bidirectional=True,
+            dropout=0.25
         )
         self.F2_attention = AttentionLayer(
             2 * module_config["seqnhidden1"], module_config["attentionsize1"]
@@ -123,16 +124,17 @@ class SequenceEncoder(nn.Module):
             num_layers=module_config["seqnlayer2"],
             batch_first=True,
             bidirectional=True,
+            dropout=0.25
         )
 
         self.clf = nn.Linear(
             module_config["seqnhidden2"] * 2, module_config["n_classes"]
         )
 
-    def forward(self, x):
-        x = self.encode(x)
-        x = self.lin(x)
-        return x
+    #def forward(self, x):
+     #    x = self.encode(x)
+     #   x = self.lin(x)
+      #  return x
 
     def encode(self, x):
         x, _ = self.LSTM(x)

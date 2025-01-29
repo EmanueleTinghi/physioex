@@ -13,7 +13,6 @@ numpy==2.1.1
 pandas==2.2.3
 paramiko==3.5.0
 psg_utils==0.1.6
-pyEDFlib==0.1.38
 pytorch_lightning==2.4.0
 pytorch_metric_learning==2.6.0
 pyunpack==0.3

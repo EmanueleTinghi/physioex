@@ -1,0 +1,11 @@
+train -m protosleepnet_spectrogram -df /home/coder/data -d mass -bs 64 -sl 21 -ck /home/coder/shared/physioex/models/definitivi/dataset/mass
+train -m protosleepnet_spectrogram -df /home/coder/data -d dcsm -bs 64 -sl 21 -ck /home/coder/shared/physioex/models/definitivi/dataset/dcsm
+train -m protosleepnet_spectrogram -df /home/coder/data -d deap -bs 64 -sl 21 -ck /home/coder/shared/physioex/models/definitivi/dataset/deap
+train -m protosleepnet_spectrogram -df /home/coder/data -d hmc -bs 64 -sl 21 -ck /home/coder/shared/physioex/models/definitivi/dataset/hmc
+train -m protosleepnet_spectrogram -df /home/coder/data -d hpap -bs 64 -sl 21 -ck /home/coder/shared/physioex/models/definitivi/dataset/hpap
+train -m protosleepnet_spectrogram -df /home/coder/data -d mahnob -bs 64 -sl 21 -ck /home/coder/shared/physioex/models/definitivi/dataset/mahnob
+train -m protosleepnet_spectrogram -df /home/coder/data -d mesa -bs 64 -sl 21 -ck /home/coder/shared/physioex/models/definitivi/dataset/mesa
+train -m protosleepnet_spectrogram -df /home/coder/data -d mros -bs 64 -sl 21 -ck /home/coder/shared/physioex/models/definitivi/dataset/mros
+train -m protosleepnet_spectrogram -df /home/coder/data -d shhs -bs 64 -sl 21 -ck /home/coder/shared/physioex/models/definitivi/dataset/shhs
+train -m protosleepnet_spectrogram -df /home/coder/data -d sleepedf -bs 64 -sl 21 -ck /home/coder/shared/physioex/models/definitivi/dataset/sleepedf
+train -m protosleepnet_spectrogram -df /home/coder/data -d wsc -bs 64 -sl 21 -ck /home/coder/shared/physioex/models/definitivi/dataset/wsc

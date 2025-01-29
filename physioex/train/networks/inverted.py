@@ -5,9 +5,11 @@ import torch.nn.functional as F
 import torch.distributions as dist
 
 import math
+import numpy as np
 
 from collections import OrderedDict
 
+from physioex.train.networks.seqsleepnet import LearnableFilterbank, AttentionLayer
 from physioex.train.networks.base import SleepModule
 
 # from 30-seconds of signal we need to extract the 5 second subsequence
@@ -21,8 +23,11 @@ class ProtoSleepNet(SleepModule):
         super(ProtoSleepNet, self).__init__(NN(module_config), module_config)
 
         self.prototypes = self.nn.epoch_encoder.prototype
-
+        self.section_length = module_config["proto_lenght"]
+        self.num_sections = 3000 // self.section_length
+        self.N = module_config["N"]
         self.step = 0
+        self.cel = nn.CrossEntropyLoss()
 
     def log_prototypes_variance(self, log: str):
         # Ensure the variance values are tracked across epochs
@@ -49,6 +54,42 @@ class ProtoSleepNet(SleepModule):
         self.logger.experiment.add_figure(f"{log}-proto-variance-history", plt.gcf(), self.step)
         plt.close()
 
+    def log_reconstructions(self, x, x_hat, target, output, log):        
+        # x shape : (N, hidden_size)
+        # convert the model parameters to numpy
+
+        x = x.clone().detach().cpu().numpy()
+        x_hat = x_hat.clone().detach().cpu().numpy()
+        target = target.clone().detach().cpu().numpy()
+        output = output.clone().detach().cpu().numpy()
+        
+        target = np.expand_dims(target, axis=-1)
+        target = np.repeat(target, self.N, axis=-1)
+        target = target.flatten()
+        
+        output = np.argmax(output, axis=-1)
+        output = np.expand_dims(output, axis=-1)
+        output = np.repeat(output, self.N, axis=-1)
+        output = output.flatten()
+    
+        # y label equal to prototype index, x label equal to the feature index
+        # display the cbar with diverging colors
+        fig, axes = plt.subplots(4, 5, figsize=(25, 20))
+        axes = axes.flatten()
+        for i, ax in enumerate(axes):
+            sns.lineplot(x=range(self.section_length), y=x[i].flatten(), ax=ax, color="blue", label="Original")
+            sns.lineplot(x=range(self.section_length), y=x_hat[i].flatten(), ax=ax, color="red", label="Reconstructed")
+            
+            # Add title for each subplot
+            ax.set_title(f"Target: {target[i]}, Output: {output[i]}")
+            
+        # Create a single global legend
+        handles, labels = axes[0].get_legend_handles_labels()
+        fig.legend(handles, labels, loc='upper right', title="Legend")
+        
+        self.logger.experiment.add_figure(f"{log}-reconstruction", fig, self.step)
+        plt.close()
+
 
     def log_prototypes(self, log : str):        
         # prototypes shape : (N, hidden_size)
@@ -72,76 +113,101 @@ class ProtoSleepNet(SleepModule):
             self.log("val_loss", float("inf"))
         # Logica di training
         inputs, targets = batch
-        prototype, clf, loss, residuals, _ = self.encode(inputs)
+        #prototype, clf, loss, residuals, reconstructed_section, original_section = self.encode(inputs)
+        #prototype, clf, loss, residuals = self.encode(inputs)
+        clf = self.encode(inputs)
 
-        return self.compute_loss(prototype, clf, targets, loss, residuals)
+        #return self.compute_loss(prototype, clf, targets, loss, residuals, reconstructed_section, original_section)
+        #return self.compute_loss(prototype, clf, targets, loss, residuals)
+        return self.compute_loss(clf, targets)
 
     def validation_step(self, batch, batch_idx):
         # Logica di validazione
         inputs, targets = batch
-        prototype, clf, loss, residuals, _ = self.encode(inputs)
+        #prototype, clf, loss, residuals, reconstructed_section, original_section = self.encode(inputs)
+        #prototype, clf, loss, residuals = self.encode(inputs)
+        clf = self.encode(inputs)
 
-        return self.compute_loss(prototype, clf, targets, loss, residuals, "val")
+        #return self.compute_loss(prototype, clf, targets, loss, residuals, reconstructed_section, original_section, "val")
+        #return self.compute_loss(prototype, clf, targets, loss, residuals, "val")
+        return self.compute_loss(clf, targets, "val")
 
     def test_step(self, batch, batch_idx):
         # Logica di training
         inputs, targets = batch
 
-        prototype, clf, loss, residuals, _ = self.encode(inputs)
+        #prototype, clf, loss, residuals, reconstructed_section, original_section = self.encode(inputs)
+        #prototype, clf, loss, residuals = self.encode(inputs)
+        clf = self.encode(inputs)
 
-        return self.compute_loss(prototype, clf, targets, loss, residuals, "test", log_metrics=True)       
+        #return self.compute_loss(prototype, clf, targets, loss, residuals, reconstructed_section, original_section, "test", log_metrics=True)   
+        #return self.compute_loss(prototype, clf, targets, loss, residuals, "test", log_metrics=True)
+        return self.compute_loss(clf, targets, "test", log_metrics=True)    
 
     def compute_loss(
         self,
-        prototypes,
+        #prototypes,
         outputs,
         targets, 
-        proto_loss,
-        residuals,
+        #encoding_loss,
+        #residuals,
+        #reconstructed_section, 
+        #original_section,
         log: str = "train",
         log_metrics: bool = False,
     ):
         self.step += 1
+        #reconstructed_section = reconstructed_section.reshape(-1, self.section_length)
+        #original_section = original_section.reshape(-1, self.section_length)
         
-        if self.step % 250 == 0 and log == "train":
+        if self.step % 250 == 0:
             self.log_prototypes(log)
             self.log_prototypes_variance(log)
+            #self.log_reconstructions(original_section, reconstructed_section, targets, outputs, log)
         
         batch_size, seq_len, n_class = outputs.size()
         #print("prototo shape", prototypes.size())
-        _,_,N_proto,_ = prototypes.size()
+        #_,_,N_proto,_ = prototypes.size()
 
         #prototipation
-        prototypes = prototypes.reshape(batch_size * seq_len * N_proto, -1)   # shape : [batch_size * seq_len, 256]
-        residuals = residuals.reshape(batch_size * seq_len * N_proto, -1)     # shape : [batch_size * seq_len, proto_size]
+        #prototypes = prototypes.reshape(batch_size * seq_len * N_proto, -1)   # shape : [batch_size * seq_len, 256]
+        #residuals = residuals.reshape(batch_size * seq_len * N_proto, -1)     # shape : [batch_size * seq_len, proto_size]
 
         #classification
         outputs = outputs.reshape(-1, n_class)  # shape : [batch_size * seq_len, n_class]
         targets = targets.reshape(-1)           # shape : [batch_size * seq_len]
 
         # compute KL-divergence between resiudals and normal distribution
-        normal_dist = dist.Normal(loc=prototypes, scale=1.0)
-        z = prototypes + residuals
+        #normal_dist = dist.Normal(loc=prototypes, scale=1.0)
+        #z = prototypes + residuals
  
         #TODO log prob che z appartenga alla distribuzione
-        kl_loss = normal_dist.log_prob(z)
-        kl_loss = kl_loss.sum(dim=-1).mean() * 0.003
+        #kl_loss = normal_dist.log_prob(z)
+        #kl_loss = kl_loss.sum(dim=-1).mean() * 0.003
 
         #
-        gauss_dist = dist.Normal(loc=0.0, scale=1.0)
-        proto_gauss_loss = gauss_dist.log_prob(prototypes)
-        proto_gauss_loss = proto_gauss_loss.sum(dim=-1).mean() * 0.003
+        #gauss_dist = dist.Normal(loc=0.0, scale=1.0)
+        #proto_gauss_loss = gauss_dist.log_prob(prototypes)
+        #proto_gauss_loss = proto_gauss_loss.sum(dim=-1).mean() * 0.003
 
-        ce_loss = self.loss(prototypes, outputs, targets)
-        total_loss = proto_loss + ce_loss - kl_loss - proto_gauss_loss
+        #reconstruction_loss = torch.nn.functional.mse_loss(original_section, reconstructed_section)
+        #std_x = torch.sqrt(torch.var(original_section, dim=1))
+        #std_x_hat = torch.sqrt(torch.var(reconstructed_section, dim=1))
+        #std_loss = torch.nn.functional.mse_loss(std_x, std_x_hat)      
 
-        self.log(f"{log}_proto_loss", proto_loss, prog_bar=True)
-        self.log(f"{log}_ce_loss", ce_loss, prog_bar=True)
-        self.log(f"{log}_kl_loss", kl_loss, prog_bar=True)
-        self.log(f"{log}_proto_gauss_loss", proto_gauss_loss, prog_bar=True)
-        self.log(f"{log}_total_loss", total_loss, prog_bar=True)
-        self.log(f"{log}_acc", self.wacc(outputs, targets), prog_bar=True)
-        self.log(f"{log}_f1", self.wf1(outputs, targets), prog_bar=True)
+        ce_loss = self.cel(outputs, targets)
+        # encoding_loss + ce_loss - kl_loss - proto_gauss_loss + 2*reconstruction_loss + std_loss
+        total_loss = ce_loss #+ encoding_loss - kl_loss - proto_gauss_loss #+ reconstruction_loss + std_loss
+
+        #self.log(f"{log}_encoding_loss", encoding_loss, prog_bar=False, on_epoch=False, on_step=True)
+        self.log(f"{log}_ce_loss", ce_loss, prog_bar=False, on_epoch=False, on_step=True)
+        #self.log(f"{log}_kl_loss", kl_loss, prog_bar=False, on_epoch=False, on_step=True)
+        #self.log(f"{log}_proto_gauss_loss", proto_gauss_loss, prog_bar=False, on_epoch=True, on_step=True)
+        #self.log(f"{log}_rec_loss", reconstruction_loss, prog_bar=False, on_epoch=True, on_step=True)
+        #self.log(f"{log}_rec_std_loss", std_loss, prog_bar=False, on_epoch=True, on_step=True)
+        self.log(f"{log}_loss", total_loss, prog_bar=True, on_epoch=True, on_step=True)
+        self.log(f"{log}_acc", self.wacc(outputs, targets), prog_bar=True, on_epoch=True, on_step=True)
+        self.log(f"{log}_f1", self.wf1(outputs, targets), prog_bar=False, on_epoch=True, on_step=True)
 
         if log_metrics and self.n_classes > 1:
             self.log(f"{log}_ck", self.ck(outputs, targets))
@@ -171,33 +237,76 @@ class NN(nn.Module):
             hidden_size = self.epoch_encoder.out_size,
             nhead = 4
         )
+
+        self.section_reconstructor = SectionReconstructor(
+            N = config["N"],
+            section_length = config["proto_lenght"],
+            num_sections = 3000//config["proto_lenght"],
+            proto_dim = self.epoch_encoder.out_size
+        )
         
         self.clf = nn.Linear( self.epoch_encoder.out_size, config["n_classes"] )
+        self.section_length = config["proto_lenght"]
     
     def encode( self, x ):
         # x shape : (batch_size, seq_len, n_chan, n_samp)
         batch_size, seq_len, _, _ = x.size()
         
-        proto, residual, loss, original_signal_sample = self.epoch_encoder( x )    # proto shape : (batch_size, seq_len, N, hidden_size)
+        #proto, residual, loss, x_embedding, sampled_x = self.epoch_encoder( x )    # proto shape : (batch_size, seq_len, N, hidden_size)
+        enc = self.epoch_encoder(x)
+
+        #reconstructed_section = self.section_reconstructor(x_embedding)
         
         # we selected N prototypes from each epoch in the sequence
         
         # sum the prototypes to get the epoch representation
-        N = proto.size(2)
-        p_clf = torch.sum( proto, dim=2 ) / N   # shape : (batch_size, seq_len, hidden_size)        
+        #N = proto.size(2)
+        #p_clf = torch.sum( proto, dim=2 ) / N   # shape : (batch_size, seq_len, hidden_size)
+        N = enc.size(2)
+        p_clf = torch.sum( enc, dim=2 ) / N   # shape : (batch_size, seq_len, hidden_size)      
                 
         # encode the sequence with the transformer        
         clf = self.sequence_encoder( p_clf ).reshape( batch_size*seq_len, -1 )    # shape : (batch_size * seq_len, hidden_size)
         
         clf = self.clf( clf ).reshape( batch_size, seq_len, -1 )
-        
+
         #return proto, clf, loss
-        return proto, clf, loss, residual, original_signal_sample
+        #return proto, clf, loss, residual#, reconstructed_section, sampled_x
+        return clf
             
     def forward( self, x ):        
         x, y = self.encode( x )                   
         return y
 
+class SectionReconstructor(nn.Module):
+    def __init__(self,
+        N : int,
+        section_length: int,
+        num_sections = int,
+        proto_dim = int
+    ):
+        super(SectionReconstructor, self).__init__()
+        self.N = N
+        self.section_length = section_length
+        self.num_sections = num_sections
+        self.proto_dim = proto_dim
+        self.num_components = 300
+
+        self.reconstruction_linear = nn.Sequential(
+            nn.Linear(self.proto_dim, self.proto_dim*4),
+            nn.ReLU(),
+            nn.LayerNorm(self.proto_dim*4),
+            nn.Dropout(0.4),
+            nn.Linear(self.proto_dim*4, self.proto_dim*2),
+            nn.ReLU(),
+            nn.LayerNorm(self.proto_dim*2),
+            nn.Dropout(0.4),
+            nn.Linear(self.proto_dim*2, self.num_components),
+        )
+     
+    def forward(self, x):
+        x_hat = self.reconstruction_linear(x)
+        return x_hat
 
 class SequenceEncoder( nn.Module ):
     def __init__(self,
@@ -247,21 +356,21 @@ class PrototypeLayer( nn.Module ):
         self.commitment_cost = commitment_cost
 
     def forward( self, x ):
-        # x shape : batch_size, seq_len*self.N, output_size)
+        # x shape : (batch_size, seq_len * N, output_size)
         x_shape = x.shape
 
-        x = x.reshape(-1, self.proto_dim).contiguous()  # shape : (batch_size * seq_len, output_size)
+        x = x.reshape(-1, self.proto_dim).contiguous()  # shape : (batch_size * seq_len * N, output_size)
 
         # Calculate distances
-        dist = (torch.sum(x**2, dim=1, keepdim=True) 
+        dist = (torch.sum(x**2, dim=1, keepdim=True) # shape: (batch_size * seq_len * N, proto_num)
                     + torch.sum(self.prototypes.weight**2, dim=1)
                     - 2 * torch.matmul(x, self.prototypes.weight.t()))
 
-        proto_indices = torch.argmin(dist, dim=1).unsqueeze(1) # shape : (batch_size * seq_len, 1)
-        prototype_OHE = torch.zeros(proto_indices.shape[0], self.proto_num).to(x.device)
+        proto_indices = torch.argmin(dist, dim=1).unsqueeze(1) # shape : (batch_size * seq_len * N, 1)
+        prototype_OHE = torch.zeros(proto_indices.shape[0], self.proto_num).to(x.device) # shape: (batch_size * seq_len * N, proto_num)
         prototype_OHE.scatter_(1, proto_indices, 1)
 
-        proto = torch.matmul(prototype_OHE, self.prototypes.weight).view(x_shape)   #shape: (batch_size, seq_len, output_size)
+        proto = torch.matmul(prototype_OHE, self.prototypes.weight).view(x_shape)   #shape: (batch_size, seq_len * N, output_size)
         x = x.view(x_shape)
 
         e_latent_loss = F.mse_loss(proto.detach(), x)
@@ -270,14 +379,15 @@ class PrototypeLayer( nn.Module ):
         loss = q_latent_loss + self.commitment_cost * e_latent_loss
         proto = x + (proto - x).detach()
 
-        x = x - proto
+        residuals = x - proto
+        x_embedding = x
 
-        return proto, x, loss
+        return proto, residuals, loss, x_embedding
         
         
 class EpochEncoder( nn.Module ):
     def __init__( self, 
-        hidden_size : int,
+        hidden_size : int, #size of the sections
         attention_size : int,
         N : int = 1, # number of elements to select from the epoch
         n_prototypes : int = 25, # number of elements to learn
@@ -289,25 +399,11 @@ class EpochEncoder( nn.Module ):
         self.N = N
         
         # we need to extract frequency-related features from the signal
-        self.conv1 = nn.Sequential( OrderedDict([
-            ("conv1", nn.Conv1d(1, 32, 4)),
-            ("relu1", nn.ReLU()),
-            ("maxpool1", nn.MaxPool1d(4)),
-            ("batchnorm1", nn.BatchNorm1d(32)),
-            ("conv2", nn.Conv1d(32, 64, 4)),
-            ("relu2", nn.ReLU()),
-            ("maxpool2", nn.MaxPool1d(hidden_size // 100)),
-            ("batchnorm2", nn.BatchNorm1d(64)),
-            ("conv3", nn.Conv1d(64, 64, 4)),
-            ("relu3", nn.ReLU()),
-            ("maxpool3", nn.MaxPool1d(4)),
-            ("flatten", nn.Flatten()),
-            ("fc", nn.Linear(64*5, 64))
-        ]))
+        self.encoder = EncodingLayer()
         
-        self.out_size = self.conv1(torch.randn(1, 1,  hidden_size)).shape[1]
+        self.out_size = self.encoder(torch.randn(1, 1,  hidden_size)).shape[1]
         
-        self.sampler = HardAttentionLayer(hidden_size, attention_size, N, temperature)
+        self.sampler = HardAttentionLayer(self.out_size, attention_size, N, temperature)
         
         self.prototype = PrototypeLayer( self.out_size, n_prototypes )
         
@@ -316,22 +412,45 @@ class EpochEncoder( nn.Module ):
         batch_size, seq_len, n_chan, n_samp = x.size()
         assert n_samp % self.hidden_size == 0, "Hidden size must be a divisor of the number of samples"
 
-        x = x.reshape( batch_size * seq_len, n_chan*(n_samp//self.hidden_size), -1 )
+        x = x.reshape( batch_size * seq_len * (n_chan*(n_samp//self.hidden_size)), 1, -1 )
 
-        sampled_x = self.sampler( x ) # shape : (batch_size * seq_len, N, hidden_size)
+        x = self.encoder( x ) # shape : (batch_size * seq_len *  n_chan*(n_samp//self.hidden_size), out_size)
+        x = x.reshape( batch_size*seq_len, n_chan*(n_samp//self.hidden_size), self.out_size )
+        
+        sampled_x = self.sampler( x ) # shape : (batch_size * seq_len, N, out_size)
 
-        x = sampled_x.reshape( batch_size * seq_len * self.N, 1,  -1 )
+        #x = x.reshape( batch_size, seq_len*self.N, self.out_size )
+        x = sampled_x.reshape( batch_size, seq_len, self.N, self.out_size )
         
-        x = self.conv1( x ) # shape : (batch_size * seq_len * self.N, out_size)
+        #proto, residual, loss, x_embedding = self.prototype( x )
+        
+        #proto = proto.reshape( batch_size, seq_len, self.N, self.out_size )
+        #residual = residual.reshape( batch_size, seq_len, self.N, self.out_size )
+        
+        return x #proto, residual, loss, x_embedding, sampled_x
 
-        x = x.reshape( batch_size, seq_len*self.N, self.out_size )
-        
-        proto, residual, loss = self.prototype( x )
-        
-        proto = proto.reshape( batch_size, seq_len, self.N, self.out_size )
-        residual = residual.reshape( batch_size, seq_len, self.N, self.out_size )
-        
-        return proto, residual, loss, sampled_x
+class EncodingLayer(nn.Module):
+    def __init__(self):
+        super(EncodingLayer, self).__init__()
+        self.soft_attention = AttentionLayer(hidden_size=64, attention_size=128)
+        self.learn_filterbank = LearnableFilterbank(F=129, in_chan=1, nfilt=32)
+        self.norm = nn.BatchNorm1d(3)
+        self.conv = nn.Conv1d(1, 129, 200, 50)
+        self.dl = nn.Linear(129, 64)
+        self.bi_lstm = nn.LSTM(32, 32, 1, batch_first=True, bidirectional=True)
+
+    def forward(self, x):
+        # x shape: (batch_size, 1, section_size)
+        x = self.conv(x).transpose(1, 2)    # shape: (batch_size, 3, 129)
+        x = self.norm(x)
+        x = nn.functional.relu(x)
+        x = self.learn_filterbank(x)       # shape: (batch_size, 3, 32)
+        x, _ = self.bi_lstm(x)            # shape: (batch_size, 3, 64)
+        x = self.soft_attention(x)      # shape: (batch_size, 64)
+        #x = torch.mean(x, dim=1)        # shape: (batch_size, 129)
+        #x = self.dl(x)  #shape: (batch_size, 64)
+        return x
+
 
 class HardAttentionLayer(nn.Module):
     def __init__(self, 

@@ -28,7 +28,6 @@ dependencies = [
     "pandas",
     "paramiko",
     "psg_utils",
-    "pyEDFlib",
     "pytorch_lightning",
     "pytorch_metric_learning",
     "pyunpack",

@@ -1,7 +1,7 @@
 import os
 import time
 from abc import ABC, abstractmethod
-from typing import List
+from typing import List, Union
 
 import h5py as h5
 import numpy as np
@@ -30,15 +30,18 @@ class MemmapReader(Reader):
         self,
         data_folder: str,
         dataset: str,
-        preprocessing: str,
+        preprocessing:  Union[List[str], str],
         sequence_length: int,
         channels_index: List[int],
         offset: int,
     ):
 
-        self.preprocessing = preprocessing
+        if isinstance(preprocessing, str):
+            self.preprocessing = [preprocessing]
+        else: 
+            self.preprocessing = preprocessing
 
-        self.data_path = os.path.join(data_folder, dataset, preprocessing)
+        self.data_paths = [ os.path.join(data_folder, dataset, p) for p in self.preprocessing]
         self.labels_path = os.path.join(data_folder, dataset, "labels")
 
         self.L = sequence_length
@@ -46,12 +49,15 @@ class MemmapReader(Reader):
         self.offset = offset
 
         # get the scaling parameters
-        scaling = np.load(os.path.join(self.data_path, "scaling.npz"))
+        scalings = [ np.load(os.path.join(dp, "scaling.npz")) for dp in self.data_paths ]
 
-        self.input_shape = list(scaling["mean"].shape)
-
-        self.mean = torch.tensor(scaling["mean"][channels_index]).float()
-        self.std = torch.tensor(scaling["std"][channels_index]).float()
+        self.input_shapes = []
+        self.means = []
+        self.stds = []
+        for i in range(len(scalings)):
+            self.input_shapes.append(list(scalings[i]["mean"].shape))
+            self.means.append(torch.tensor(scalings[i]["mean"][channels_index]).float())
+            self.stds.append(torch.tensor(scalings[i]["std"][channels_index]).float())
 
         # read the table
         self.table = pd.read_csv(os.path.join(data_folder, dataset, "table.csv"))
@@ -71,8 +77,7 @@ class MemmapReader(Reader):
             self.len[neg] = 0
 
         self.len = int(np.sum(self.len + 1))
-        print(self.len)
-        
+
         self.subject_idx, self.relative_idx, self.windows_index = build_index(
             num_windows, subjects_id, self.L
         )
@@ -91,25 +96,33 @@ class MemmapReader(Reader):
         subject_id = self.subject_idx[idx]
         num_windows = self.windows_index[subject_id]
 
-        input_shape = tuple([num_windows] + self.input_shape)
+        X_ = []
 
-        data_path = os.path.join(self.data_path, str(subject_id) + ".npy")
+        for i, _ in enumerate( self.preprocessing ):
+            input_shape = tuple([num_windows] + self.input_shapes[i])
+            data_path = os.path.join(self.data_paths[i], str(subject_id) + ".npy")
 
-        X = np.memmap(data_path, dtype="float32", mode="r", shape=input_shape)
+            X = np.memmap(data_path, dtype="float32", mode="r", shape=input_shape)
 
-        if relative_id + self.L > num_windows:
-            X = X[relative_id:, self.channels_index]
+            if relative_id + self.L > num_windows:
+                X = X[relative_id:, self.channels_index]
 
-            remainer = self.L - X.shape[0]
-            # add zeros to the end of the array
-            X = np.concatenate([X, np.zeros((remainer, *X.shape[1:]))], axis=0)
+                remainer = self.L - X.shape[0]
+                # add zeros to the end of the array
+                X = np.concatenate([X, np.zeros((remainer, *X.shape[1:]))], axis=0)
 
+            else:
+                X = X[relative_id : relative_id + self.L, self.channels_index]
+
+            X = (torch.tensor(X).float() - self.means[i]) / self.stds[i]
+
+            X_ = X_ + [X] 
+
+        if len( X_ ) == 1:
+            X_ = X_[0]        
         else:
-            X = X[relative_id : relative_id + self.L, self.channels_index]
-
-        X = (torch.tensor(X).float() - self.mean) / self.std
-
-        return X
+            X_ = tuple(X_)
+        return  X_ 
 
     def get_stages(self, idx):
         idx = idx - self.offset
@@ -126,10 +139,10 @@ class MemmapReader(Reader):
 
         if relative_id + self.L > num_windows:
             y = y[relative_id:]
-            
+
             remainer = self.L - len(y)
             # associate the padded values to the class 6
-            y = np.concatenate([y, np.ones(remainer) * 5 ], axis=0)        
+            y = np.concatenate([y, np.ones(remainer) * 5], axis=0)
         else:
             y = y[relative_id : relative_id + self.L]
 
@@ -252,7 +265,7 @@ class DataReader(Reader):
         self,
         data_folder: str,
         dataset: str,
-        preprocessing: str,
+        preprocessing:  Union[List[str], str],
         sequence_length: int,
         channels_index: List[int],
         offset: int,

@@ -1,6 +1,6 @@
 import os
 import pickle
-from typing import Callable, List
+from typing import Callable, List, Union
 
 from loguru import logger
 import numpy as np
@@ -17,7 +17,7 @@ class PhysioExDataset(torch.utils.data.Dataset):
         self,
         datasets: List[str],
         data_folder: str,
-        preprocessing: str = "raw",
+        preprocessing:  Union[List[str], str] = "raw",
         selected_channels: List[int] = ["EEG"],
         sequence_length: int = 21,
         target_transform: Callable = None,
@@ -125,8 +125,8 @@ class PhysioExDataset(torch.utils.data.Dataset):
         for table in self.tables:
             for _, row in table.iterrows():
 
-                num_windows = max( row["num_windows"] - self.L, 0 ) + 1 
-                                
+                num_windows = max(row["num_windows"] - self.L, 0) + 1
+
                 indices = np.arange(
                     start=start_index, stop=start_index + num_windows
                 ).astype(np.uint32)

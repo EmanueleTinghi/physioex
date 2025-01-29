@@ -22,7 +22,7 @@ class ProtoSleepNet(SleepModule):
     def __init__(self, module_config : dict):
         super(ProtoSleepNet, self).__init__(NN(module_config), module_config)
         self.prototypes = self.nn.epoch_encoder.prototype
-        self.section_length = module_config["proto_lenght"]
+        self.section_length = module_config["section_length"]
         self.num_sections = 3000 // self.section_length
         self.N = module_config["N"]
         self.step = 0
@@ -53,43 +53,6 @@ class ProtoSleepNet(SleepModule):
         self.logger.experiment.add_figure(f"{log}-proto-variance-history", plt.gcf(), self.step)
         plt.close()
 
-    def log_reconstructions(self, x, x_hat, target, output, log):        
-        # x shape : (N, hidden_size)
-        # convert the model parameters to numpy
-
-        x = x.clone().detach().cpu().numpy()
-        x_hat = x_hat.clone().detach().cpu().numpy()
-        target = target.clone().detach().cpu().numpy()
-        output = output.clone().detach().cpu().numpy()
-        
-        target = np.expand_dims(target, axis=-1)
-        target = np.repeat(target, self.N, axis=-1)
-        target = target.flatten()
-        
-        output = np.argmax(output, axis=-1)
-        output = np.expand_dims(output, axis=-1)
-        output = np.repeat(output, self.N, axis=-1)
-        output = output.flatten()
-    
-        # y label equal to prototype index, x label equal to the feature index
-        # display the cbar with diverging colors
-        fig, axes = plt.subplots(4, 5, figsize=(25, 20))
-        axes = axes.flatten()
-        for i, ax in enumerate(axes):
-            sns.lineplot(x=range(self.section_length), y=x[i].flatten(), ax=ax, color="blue", label="Original")
-            sns.lineplot(x=range(self.section_length), y=x_hat[i].flatten(), ax=ax, color="red", label="Reconstructed")
-            
-            # Add title for each subplot
-            ax.set_title(f"Target: {target[i]}, Output: {output[i]}")
-            
-        # Create a single global legend
-        handles, labels = axes[0].get_legend_handles_labels()
-        fig.legend(handles, labels, loc='upper right', title="Legend")
-        
-        self.logger.experiment.add_figure(f"{log}-reconstruction", fig, self.step)
-        plt.close()
-
-
     def log_prototypes(self, log : str):        
         # prototypes shape : (N, hidden_size)
         # convert the model parameters to numpy
@@ -113,25 +76,25 @@ class ProtoSleepNet(SleepModule):
 
         # Logica di training
         inputs, targets = batch
-        prototype, clf, loss, residuals, original_section = self.encode(inputs)
+        prototype, clf, loss, residuals, _ = self.encode(inputs)
 
-        return self.compute_loss(prototype, clf, targets, loss, residuals, original_section)
+        return self.compute_loss(prototype, clf, targets, loss, residuals)
 
 
     def validation_step(self, batch, batch_idx):
         # Logica di validazione
         inputs, targets = batch
-        prototype, clf, loss, residuals, original_section = self.encode(inputs)
+        prototype, clf, loss, residuals, _ = self.encode(inputs)
 
-        return self.compute_loss(prototype, clf, targets, loss, residuals, original_section, "val")
+        return self.compute_loss(prototype, clf, targets, loss, residuals, "val")
 
 
     def test_step(self, batch, batch_idx):
         # Logica di training
         inputs, targets = batch
-        prototype, clf, loss, residuals, original_section = self.encode(inputs)
+        prototype, clf, loss, residuals, _ = self.encode(inputs)
   
-        return self.compute_loss(prototype, clf, targets, loss, residuals, original_section, "test", log_metrics=True)
+        return self.compute_loss(prototype, clf, targets, loss, residuals, "test", log_metrics=True)
     
 
     def compute_loss(
@@ -141,23 +104,16 @@ class ProtoSleepNet(SleepModule):
         targets, 
         encoding_loss,
         residuals,
-        original_section,
-        #reconstructed_section, 
-        #original_section,
         log: str = "train",
         log_metrics: bool = False,
     ):
         self.step += 1
-        #reconstructed_section = reconstructed_section.reshape(-1, self.section_length)
-        #original_section = original_section.reshape(-1, self.section_length)
 
         if self.step % 250 == 0:
             self.log_prototypes(log)
             self.log_prototypes_variance(log)
-            #self.log_reconstructions(original_section, reconstructed_section, targets, outputs, log)
         
         batch_size, seq_len, n_class = outputs.size()
-        #print("prototo shape", prototypes.size())
         _,_,N_proto,_ = prototypes.size()
 
         #prototipation
@@ -172,30 +128,22 @@ class ProtoSleepNet(SleepModule):
         normal_dist = dist.Normal(loc=prototypes, scale=1.0)
         z = prototypes + residuals
  
-        #TODO log prob che z appartenga alla distribuzione
+        #log prob che z appartenga alla distribuzione
         kl_loss = normal_dist.log_prob(z)
         kl_loss = kl_loss.sum(dim=-1).mean() * 0.003
 
         #
         gauss_dist = dist.Normal(loc=0.0, scale=1.0)
         proto_gauss_loss = gauss_dist.log_prob(prototypes)
-        proto_gauss_loss = proto_gauss_loss.sum(dim=-1).mean() * 0.003
-
-        #reconstruction_loss = torch.nn.functional.mse_loss(original_section, reconstructed_section)
-        #std_x = torch.sqrt(torch.var(original_section, dim=1))
-        #std_x_hat = torch.sqrt(torch.var(reconstructed_section, dim=1))
-        #std_loss = torch.nn.functional.mse_loss(std_x, std_x_hat)      
+        proto_gauss_loss = proto_gauss_loss.sum(dim=-1).mean() * 0.003    
 
         ce_loss = self.cel(outputs, targets)
-        # encoding_loss + ce_loss - kl_loss - proto_gauss_loss + 2*reconstruction_loss + std_loss
-        total_loss = ce_loss + 2*encoding_loss - kl_loss - proto_gauss_loss# + reconstruction_loss + std_loss
+        total_loss = ce_loss + encoding_loss - kl_loss - proto_gauss_loss
 
         self.log(f"{log}_encoding_loss", encoding_loss, prog_bar=False, on_epoch=False, on_step=True)
         self.log(f"{log}_ce_loss", ce_loss, prog_bar=False, on_epoch=False, on_step=True)
         self.log(f"{log}_kl_loss", kl_loss, prog_bar=False, on_epoch=False, on_step=True)
         self.log(f"{log}_proto_gauss_loss", proto_gauss_loss, prog_bar=False, on_epoch=False, on_step=True)
-        #self.log(f"{log}_rec_loss", reconstruction_loss, prog_bar=False, on_epoch=True, on_step=True)
-        #self.log(f"{log}_rec_std_loss", std_loss, prog_bar=False, on_epoch=True, on_step=True)
         self.log(f"{log}_loss", total_loss, prog_bar=True, on_epoch=True, on_step=True)
         self.log(f"{log}_acc", self.wacc(outputs, targets), prog_bar=True, on_epoch=True, on_step=True)
         self.log(f"{log}_f1", self.wf1(outputs, targets), prog_bar=False, on_epoch=True, on_step=True)
@@ -214,10 +162,10 @@ class NN(nn.Module):
     ):
         super(NN, self).__init__()
         
-        assert 3000 % config["proto_lenght"] == 0, "The prototype lenght must be a divisor of 3000"
+        assert 3000 % config["section_length"] == 0, "The prototype lenght must be a divisor of 3000"
 
         self.epoch_encoder = EpochEncoder( 
-            hidden_size = config["proto_lenght"],    #3000 // config["proto_lenght"], 
+            hidden_size = config["section_length"],    #3000 // config["section_length"], 
             attention_size = 128, 
             N = config["N"], 
             n_prototypes = config["n_prototypes"], 
@@ -228,52 +176,21 @@ class NN(nn.Module):
             hidden_size = self.epoch_encoder.out_size,
             nhead = 4
         )
-
-        self.section_reconstructor = SectionReconstructor(
-            N = config["N"],
-            section_length = config["proto_lenght"],
-            num_sections = 3000//config["proto_lenght"],
-            proto_dim = self.epoch_encoder.out_size
-        )
     
         self.clf = nn.Linear( self.epoch_encoder.out_size, config["n_classes"] )
-        self.section_length = config["proto_lenght"]
+        self.section_length = config["section_length"]
     
     def encode( self, x ):
-        # x: x[0] preprocessing xsleepnet, x[1] preprocessing raw
         batch_size, seq_len, _, _, _ = x[0].size()
-        _, _, _, time_steps = x[1].size()
-
-        xsleepnet = x[0]
-        raw = x[1].reshape(batch_size*seq_len, time_steps//100, 100)
-
-        window_size = 3
-        step_size = 2
-
-        num_windows = (raw.size(1) - window_size) // step_size + 1
-
-        raw = torch.as_strided(
-            raw,
-            size=(batch_size*seq_len, num_windows, window_size * raw.size(2)),
-            stride=(raw.stride(0), step_size * raw.stride(1), raw.stride(2)),
-        )
-
-        raw = torch.cat([raw, raw[:, -1:, :]], dim=1)  # (bs*sl, 15, 300)
-
         # Extract sections of length 2
-        sections = xsleepnet.unfold(dimension=3, size=2, step=2).transpose(4, 5)  # shape: (batch_size, seq_len, n_chan, 14, 2, n_fbins)
+        sections = x.unfold(dimension=3, size=2, step=2).transpose(4, 5)  # shape: (batch_size, seq_len, n_chan, 14, 2, n_fbins)
 
         # Copy the 29th section to the 30th place
-        last_section = xsleepnet[:, :, :, 28:29, :].unsqueeze(3)  # shape: (batch_size, seq_len, n_chan, 1, 1, n_fbins)
+        last_section = x[:, :, :, 28:29, :].unsqueeze(3)  # shape: (batch_size, seq_len, n_chan, 1, 1, n_fbins)
         last_section = last_section.expand(-1, -1, -1, 1, 2, -1)  # shape: (batch_size, seq_len, n_chan, 1, 2, n_fbins)
         sections = torch.cat((sections, last_section), dim=3)  # shape: (batch_size, seq_len, n_chan, 15, 2, n_fbins)
    
         proto, residual, loss, indexes = self.epoch_encoder( sections )    # proto shape : (batch_size, seq_len, N, hidden_size)
-
-        batch_indices = torch.arange(batch_size*seq_len).unsqueeze(-1)
-        original_section = raw[batch_indices, indexes] 
-
-        #reconstructed_section = self.section_reconstructor(proto+residual)
 
         # we selected N prototypes from each epoch in the sequence
         # sum the prototypes to get the epoch representation
@@ -284,41 +201,11 @@ class NN(nn.Module):
         
         clf = self.clf( clf ).reshape( batch_size, seq_len, -1 )
 
-        return proto, clf, loss, residual, original_section #, reconstructed_section
+        return proto, clf, loss, residual, indexes
             
     def forward( self, x ):        
         x, y = self.encode( x )                   
         return y
-
-class SectionReconstructor(nn.Module):
-    def __init__(self,
-        N : int,
-        section_length: int,
-        num_sections = int,
-        proto_dim = int
-    ):
-        super(SectionReconstructor, self).__init__()
-        self.N = N
-        self.section_length = section_length
-        self.num_sections = num_sections
-        self.proto_dim = proto_dim
-        self.num_components = 300
-
-        self.reconstruction_linear = nn.Sequential(
-            nn.Linear(self.proto_dim, self.proto_dim*4),
-            nn.ReLU(),
-            nn.LayerNorm(self.proto_dim*4),
-            nn.Dropout(0.4),
-            nn.Linear(self.proto_dim*4, self.proto_dim*2),
-            nn.ReLU(),
-            nn.LayerNorm(self.proto_dim*2),
-            nn.Dropout(0.4),
-            nn.Linear(self.proto_dim*2, self.num_components),
-        )
-     
-    def forward(self, x):
-        x_hat = self.reconstruction_linear(x)
-        return x_hat
 
 class SequenceEncoder( nn.Module ):
     def __init__(self,
@@ -339,7 +226,7 @@ class SequenceEncoder( nn.Module ):
             batch_first=True
         )
         
-        self.encoder = nn.TransformerEncoder( self.encoder, num_layers=1 )
+        self.encoder = nn.TransformerEncoder( self.encoder, num_layers=2 )
 
     def forward( self, x):
         # x shape : (batch_size, seq_len, hidden_size)
@@ -420,7 +307,7 @@ class EpochEncoder( nn.Module ):
         
     def forward( self, x ):
         # shape: (batch_size, seq_len, n_chan, 15, 2, n_fbins)
-        batch_size, seq_len, n_chan, tot_sections, n_sections, n_fbins = x.size()
+        batch_size, seq_len, _, tot_sections, _, n_fbins = x.size()
         x = x.reshape(-1, 2, n_fbins)    #sections shape: (bs*sl*n_chan*15, 2, n_fbins)
         
         x = self.encoder( x ) # shape : (batch_size*seq_len*n_chan*tot_sections , out_size)
@@ -443,21 +330,12 @@ class EncodingLayer(nn.Module):
         super(EncodingLayer, self).__init__()
         self.soft_attention = AttentionLayer(hidden_size=64, attention_size=128)
         self.learn_filterbank = LearnableFilterbank(F=129, in_chan=1, nfilt=32)
-        self.norm = nn.BatchNorm1d(2)
-        self.conv = nn.Conv1d(1, 129, 200, 50)
-        self.dl = nn.Linear(129, 64)
         self.bi_lstm = nn.LSTM(32, 32, 2, batch_first=True, bidirectional=True, dropout=0.25, )
 
     def forward(self, x):
-        # x shape: (batch_size, 1, section_size)
-        #x = self.conv(x).transpose(1, 2)    # shape: (batch_size, 3, 129)
-        #x = self.norm(x)
-        #x = nn.functional.relu(x)
         x = self.learn_filterbank(x)       # shape: (batch_size, 2, 32)
         x, _ = self.bi_lstm(x)            # shape: (batch_size, 2, 64)
         x = self.soft_attention(x)      # shape: (batch_size, 64)
-        #x = torch.mean(x, dim=1)        # shape: (batch_size, 129)
-        #x = self.dl(x)  #shape: (batch_size, 64)
         return x
 
 

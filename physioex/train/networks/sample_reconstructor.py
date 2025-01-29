@@ -165,11 +165,29 @@ class NN(nn.Module):
 
     def forward(self, x):
         # x: x[0] preprocessing xsleepnet, x[1] preprocessing raw
+        batch_size, seq_len, _, time_steps = x[1].size()
 
+        xsleepnet = x[0]
+        raw = x[1].reshape(batch_size*seq_len, time_steps//100, 100)
+
+        window_size = 3
+        step_size = 2
+
+        num_windows = (raw.size(1) - window_size) // step_size + 1
+
+        raw = torch.as_strided(
+            raw,
+            size=(batch_size*seq_len, num_windows, window_size * raw.size(2)),
+            stride=(raw.stride(0), step_size * raw.stride(1), raw.stride(2)),
+        )
+
+        raw = torch.cat([raw, raw[:, -1:, :]], dim=1)  # (bs*sl, 15, 300)
         # Get the prototypes from the frozen ProtoSleepNet model
         with torch.no_grad():
-            proto, clf, _, res, original_section = self.proto_model.nn.encode(x)
-            
+            proto, clf, _, res, original_section = self.proto_model.nn.encode(xsleepnet)
+    
+        batch_indices = torch.arange(batch_size*seq_len).unsqueeze(-1)
+        original_section = raw[batch_indices, indexes] 
         z = proto + res
         x_hat = self.reconstructor(z).reshape(-1, self.num_components)
 

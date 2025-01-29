@@ -339,7 +339,7 @@ class SequenceEncoder( nn.Module ):
             batch_first=True
         )
         
-        self.encoder = nn.TransformerEncoder( self.encoder, num_layers=1 )
+        self.encoder = nn.TransformerEncoder( self.encoder, num_layers=2 )
 
     def forward( self, x):
         # x shape : (batch_size, seq_len, hidden_size)

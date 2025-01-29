@@ -297,7 +297,7 @@ class EpochEncoder( nn.Module ):
         self.N = N
         
         # we need to extract frequency-related features from the signal
-        self.encoder = EncodingLayer()
+        self.encoder = SectionEncoder()
         
         self.out_size = self.encoder(torch.randn(1, 2,  129)).shape[1]
         
@@ -325,9 +325,9 @@ class EpochEncoder( nn.Module ):
         
         return proto, residual, loss, indexes
 
-class EncodingLayer(nn.Module):
+class SectionEncoder(nn.Module):
     def __init__(self):
-        super(EncodingLayer, self).__init__()
+        super(SectionEncoder, self).__init__()
         self.soft_attention = AttentionLayer(hidden_size=64, attention_size=128)
         self.learn_filterbank = LearnableFilterbank(F=129, in_chan=1, nfilt=32)
         self.bi_lstm = nn.LSTM(32, 32, 2, batch_first=True, bidirectional=True, dropout=0.25, )

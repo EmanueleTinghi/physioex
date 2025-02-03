@@ -184,7 +184,7 @@ class NN(nn.Module):
         raw = torch.cat([raw, raw[:, -1:, :]], dim=1)  # (bs*sl, 15, 300)
         # Get the prototypes from the frozen ProtoSleepNet model
         with torch.no_grad():
-            proto, clf, _, res, original_section = self.proto_model.nn.encode(xsleepnet)
+            proto, clf, _, res, indexes = self.proto_model.nn.encode(xsleepnet)
     
         batch_indices = torch.arange(batch_size*seq_len).unsqueeze(-1)
         original_section = raw[batch_indices, indexes] 

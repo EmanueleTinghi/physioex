@@ -21,42 +21,17 @@ import matplotlib.pyplot as plt
 class ProtoSleepNet(SleepModule):
     def __init__(self, module_config : dict):
         super(ProtoSleepNet, self).__init__(NN(module_config), module_config)
-        self.prototypes = self.nn.epoch_encoder.prototype
+        self.prototype = self.nn.epoch_encoder.prototype
         self.section_length = module_config["section_length"]
         self.num_sections = 3000 // self.section_length
         self.N = module_config["N"]
         self.step = 0
         self.cel = nn.CrossEntropyLoss()
 
-    def log_prototypes_variance(self, log: str):
-        # Ensure the variance values are tracked across epochs
-        if not hasattr(self, "variance_history"):
-            self.variance_history = []
-
-        # Prototypes shape: (N, hidden_size)
-        prototypes = self.prototypes.prototypes.weight.detach().cpu().numpy()
-
-        # Calculate variance between prototypes (axis 0: prototypes)
-        variance_between_prototypes = prototypes.var(axis=0).mean()
-
-        # Append the variance to the history
-        self.variance_history.append(variance_between_prototypes)
-
-        # Create a plot for the variance history
-        plt.figure()
-        plt.plot(self.variance_history, marker="o")
-        plt.xlabel("Log number")
-        plt.ylabel("Variance")
-        plt.title("Variance Between Prototypes Over Teps")
-
-        # Log the figure
-        self.logger.experiment.add_figure(f"{log}-proto-variance-history", plt.gcf(), self.step)
-        plt.close()
-
-    def log_prototypes(self, log : str):        
+    def log_prototypes(self):        
         # prototypes shape : (N, hidden_size)
         # convert the model parameters to numpy
-        prototypes = self.prototypes.prototypes.weight.detach().cpu().numpy()
+        prototypes = self.prototype.prototypes.weight.detach().cpu().numpy()
 
         # create the heatmap of the prototypes
         # y label equal to prototype index, x label equal to the feature index
@@ -66,7 +41,7 @@ class ProtoSleepNet(SleepModule):
         plt.ylabel("Prototype")
         
         plt.title("Prototypes")
-        self.logger.experiment.add_figure(f"{log}-age-corr", plt.gcf(), self.step )
+        self.logger.experiment.add_figure(f"Prototypes", plt.gcf(), self.step )
         plt.close()
  
     def training_step(self, batch, batch_idx):
@@ -110,11 +85,15 @@ class ProtoSleepNet(SleepModule):
         self.step += 1
 
         if self.step % 250 == 0:
-            self.log_prototypes(log)
-            self.log_prototypes_variance(log)
+            self.log_prototypes()
         
         batch_size, seq_len, n_class = outputs.size()
         _,_,N_proto,_ = prototypes.size()
+
+        learned_prototypes = self.prototype.prototypes.weight.detach().cpu().numpy()
+
+        # Calculate variance between learned_prototypes (axis 0: prototypes)
+        variance_learned_prototypes = learned_prototypes.var(axis=0).mean()
 
         #prototipation
         prototypes = prototypes.reshape(batch_size * seq_len * N_proto, -1)   # shape : [batch_size * seq_len, 256]
@@ -147,6 +126,7 @@ class ProtoSleepNet(SleepModule):
         self.log(f"{log}_loss", total_loss, prog_bar=True, on_epoch=True, on_step=True)
         self.log(f"{log}_acc", self.wacc(outputs, targets), prog_bar=True, on_epoch=True, on_step=True)
         self.log(f"{log}_f1", self.wf1(outputs, targets), prog_bar=False, on_epoch=True, on_step=True)
+        self.log(f"prototype_variance", variance_learned_prototypes, prog_bar=False, on_epoch=True, on_step=False)
 
         if log_metrics and self.n_classes > 1:
             self.log(f"{log}_ck", self.ck(outputs, targets))
@@ -181,7 +161,7 @@ class NN(nn.Module):
         self.section_length = config["section_length"]
     
     def encode( self, x ):
-        batch_size, seq_len, _, _, _ = x[0].size()
+        batch_size, seq_len, _, _, _ = x.size()
         # Extract sections of length 2
         sections = x.unfold(dimension=3, size=2, step=2).transpose(4, 5)  # shape: (batch_size, seq_len, n_chan, 14, 2, n_fbins)
 

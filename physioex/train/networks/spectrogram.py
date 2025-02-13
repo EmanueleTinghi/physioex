@@ -18,9 +18,7 @@ import matplotlib.pyplot as plt
 class ProtoSleepNet(SleepModule):
     """
     The ProtoSleepNet class is designed to implement the ProtoSleepNet architecture,
-    which combines prototype learning with sequence modeling for sleep stage classification.
-    It uses prototypes to learn representations of each epoch and applies a cross-entropy 
-    classification loss along with additional regularization terms.
+    which uses prototype learning for sleep stage classification.
     Args:
         module_config (dict): Configuration dictionary containing model hyperparameters such as:
             - section_length (int): Length of each section (input signal segment).
@@ -109,7 +107,7 @@ class ProtoSleepNet(SleepModule):
         outputs (Tensor): The classification outputs from the model.
         targets (Tensor): The ground truth labels.
         encoding_loss (Tensor): The loss associated with the prototype learning.
-        residuals (Tensor): The residuals from the reconstruction of the prototypes.
+        residuals (Tensor): The residuals obdained from of the prototyping layer.
         log (str): A string to specify whether the loss is for training, validation, or test.
         log_metrics (bool): Whether to log additional metrics.
     Returns:
@@ -213,7 +211,7 @@ class NN(nn.Module):
         self.section_length = config["section_length"]
 
     """
-    Encodes the input sequence into prototypes and a classification output.
+    Encodes the input sequence into prototypes and obtains a classification output.
     Args:
         x (Tensor): Input tensor of shape (batch_size, seq_len, n_chan, 3000, 2, n_fbins).
     Returns:
@@ -258,8 +256,7 @@ class NN(nn.Module):
 class SequenceEncoder( nn.Module ):
     """
     The SequenceEncoder applies positional encoding and uses a TransformerEncoder 
-    to process sequential data. The encoder learns to model dependencies across 
-    the sequence using multi-head attention.
+    to obtain a sequence representation.
     Args:
         hidden_size (int): Dimension of the input and output embeddings for the transformer.
         nhead (int): Number of attention heads for multi-head attention.
@@ -425,7 +422,7 @@ class EpochEncoder( nn.Module ):
 
 class SectionEncoder(nn.Module):
     """
-    Section Encoder module that processes input signals through a learnable filterbank,
+    Section Encoder module that processes input sections through a learnable filterbank,
     a bidirectional LSTM, and a soft attention mechanism to extract meaningful features.
     """
     def __init__(self):

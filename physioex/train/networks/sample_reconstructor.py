@@ -164,9 +164,10 @@ class SampleReconstructor(SleepModule):
 
 class NN(nn.Module):
     """
-    The NN model integrates a frozen ProtoSleepNet for prototype extraction and a Transformer-based 
-    reconstruction module. It processes input sequences, extracts prototype representations, and 
-    reconstructs them using learned transformations.
+    The NN model integrates a frozen ProtoSleepNet for prototype extraction and a 
+    reconstruction module based on a linear layer and a transformer encoder. 
+    It processes input sequences, extracts prototype representations, and 
+    reconstructs them using those transformations.
     Args:
         config (dict): Configuration dictionary containing model parameters.
     """
